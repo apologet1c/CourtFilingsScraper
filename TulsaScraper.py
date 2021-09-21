@@ -3,7 +3,6 @@ import urllib.request
 import pandas as pd
 import string
 import re
-import time
 import os
 import requests
 import boto3
@@ -17,17 +16,17 @@ br.set_handle_robots(False)   # ignore robots.txt
 br.set_handle_refresh(False)  # can sometimes hang without this
 
 #get the webpage
-page = br.open('https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeCaseTypeAll&errorcheck=true&Judge=1012&database=&db=Tulsa&CaseTypeID=26&StartDate=09%2F09%2F2021&GeneralNumber=1&generalnumber1=1&GeneralCheck=on')
+page = br.open('https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeCaseTypeAll&errorcheck=true&Judge=1012&database=&db=Tulsa&CaseTypeID=26&StartDate=09%2F21%2F2021&GeneralNumber=1&generalnumber1=1&GeneralCheck=on')
 html = page.read().decode("utf-8")
 
 #now find each docket # and format it into an excel link
 dockets = re.findall("SC-\d+-\d+", html)
 snippets = re.findall("GetCaseInformation.asp\?submitted=true&db=Tulsa&casemasterid=\d+", html)
 urls = ["https://www.oscn.net/applications/oscn/" + e for e in snippets]
-excellinks = ["=HYPERLINK(\"" + e + "\", \"Summary\")" for e in urls]
 
 #initialize all lists
 addresses = []
+captions = []
 times = []
 cares = []
 petitions = []
@@ -35,16 +34,33 @@ cares = []
 petitions = []
 atty1 = []
 atty2 = []
+url1 = []
 
 #open each docket summary URL
 for i in urls:
     #open page
-    print(i)
-    page = br.open(i)
-    html = page.read().decode("utf-8", errors='ignore')
+    try:
+        page = br.open(i)
+        html = page.read().decode("utf-8", errors='ignore')
+        match = re.search("FORCIBLE ENTRY", html)
+        testfed = bool(match)
+        print(testfed)
+    except:
+        print("dropping")
+        
+    if testfed is True:
+        url1.append(i)
+    else:
+        print("dropping")
+        continue
+    
+    #now we get the caption
+    caption = ""
+    caption = re.findall("SC-\d+-\d+- [\r\n]+([^\r\n]+)", html)
+    captions.append(caption[0])
     
     #generate file links
-    caseID= i.replace('https://www.oscn.net/applications/oscn/GetCaseInformation.asp?submitted=true&db=Tulsa&casemasterid=', '')
+    caseID = i.replace('https://www.oscn.net/applications/oscn/GetCaseInformation.asp?submitted=true&db=Tulsa&casemasterid=', '')
     barcodes = re.findall("barcode=\d+", html)
     
     #what if we don't find any documents?
@@ -65,37 +81,40 @@ for i in urls:
         petitions.append("https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + petitioncode)
         cares.append("https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + carescode)
 
-    #now we get the attorneys names and drop them into lists
+    #now we get the attorney names and drop them into lists
     atty = []
     atty = re.findall("(?<=\t\t\t\t)(.*)(?=\(Bar # \d+)", html)
     try:
         atty1.append(atty[0])
     except:
-        atty = ["none", "none"]
+        atty = [" ", " "]
         atty1.append(atty[0])
     try:
         atty2.append(atty[1]) 
     except:
-        atty = ["none", "none"]
+        atty = [" ", " "]
         atty2.append(atty[1])
     
 excelpets = ["=HYPERLINK(\"" + e + "\", \"Petition\")" for e in petitions]
 excelcares = ["=HYPERLINK(\"" + e + "\", \"Cares Verification\")" for e in cares]
 
+print(len(url1))
+print(len(petitions))
+print(len(cares))
 print("done!")
 
-#pull down images and convert to pngs
 os.chdir("C:/Users/AnthonySeverin/TIFs")
 count = 1
 
 for i in petitions:  
     #pulls down tif file from OSCN
     r = requests.get(i, allow_redirects=True)
+    
     filename = str(count) + ".tif"
     newfilename = str(count) + ".png"
     open(filename, 'wb').write(r.content)
     
-    #convert to png
+    #conversion goes here
     im = Image.open(filename)
     for i, page in enumerate(ImageSequence.Iterator(im)): #kernel crashes unless this is in a for loop for some ungodly reason
         page.save(newfilename)
@@ -109,6 +128,7 @@ print("done")
 client = boto3.client('textract')
 address1list = []
 address2list = []
+alltext = []
 count = 0
 
 #open each image and read it
@@ -136,29 +156,35 @@ while i <= count:
     for item in response["Blocks"]:
         if item["BlockType"] == "LINE":
             text += "\n" + item["Text"]
-
+    
+    alltext.append(text)
+    
     #use regex to pull out addresses on the next line
     address1 = re.findall("(?<=address is\n).*", text)
     address2 = re.findall("(?<=resides at\n).*", text)
     
     #if that fails, try looking on the same line
     if address1 == []:
-        address1 = re.findall("(?<=resides at).*", text)
+        address1 = re.findall("(?<=address is).*", text)
 
     if address2 == []:
-        address2 = re.findall("(?<=address is).*", text)
+        address2 = re.findall("(?<=resides at).*", text)
 
     print(count)
     print(address1)
     print(address2)
+    print(text)
     
     #append to addresslists
     address1list.append(address1)
     address2list.append(address2)
     
-#send to dataframes so pandas can export to csv
+    #send to dataframes so pandas can export to csv
+excellinks = ["=HYPERLINK(\"" + e + "\", \"Summary\")" for e in url1]
+
 df = pd.DataFrame()
 df["Docket Number"] = dockets
+df["Captions"] = captions
 df["Docket Links"] = excellinks
 df["Petition"] = excelpets
 df["Cares Act Affidavit"] = excelcares
@@ -168,3 +194,4 @@ df["Atty1"] = atty1
 df["Atty2"] = atty2
 
 df.to_csv('evictions.csv', index=False)
+    
