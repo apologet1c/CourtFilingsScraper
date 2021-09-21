@@ -42,19 +42,21 @@ for i in urls:
     try:
         page = br.open(i)
         html = page.read().decode("utf-8", errors='ignore')
+        
+        #checks to see if it's an FED
         match = re.search("FORCIBLE ENTRY", html)
         testfed = bool(match)
-        print(testfed)
+
     except:
         print("dropping")
-        
+    
     if testfed is True:
         url1.append(i)
     else:
         print("dropping")
         continue
     
-    #now we get the caption
+    #now we get the case caption
     caption = ""
     caption = re.findall("SC-\d+-\d+- [\r\n]+([^\r\n]+)", html)
     captions.append(caption[0])
@@ -69,12 +71,14 @@ for i in urls:
         petitions.append("NONE")
         cares.append("NONE")
 
+    #what if we find one document
     if len(barcodes) == 1:
         petitioncode = barcodes[0]
         carescode = "NONE"
         petitions.append("https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + petitioncode)
         cares.append("NONE")
 
+    #what if we find 2+ documents
     if len(barcodes) >= 2:
         petitioncode = barcodes[0]
         carescode = barcodes[1]
@@ -84,25 +88,32 @@ for i in urls:
     #now we get the attorney names and drop them into lists
     atty = []
     atty = re.findall("(?<=\t\t\t\t)(.*)(?=\(Bar # \d+)", html)
+    
+    #tries to append first name
     try:
         atty1.append(atty[0])
     except:
         atty = [" ", " "]
         atty1.append(atty[0])
+    
+    #tries to append second name
     try:
         atty2.append(atty[1]) 
     except:
         atty = [" ", " "]
         atty2.append(atty[1])
-    
+
+#reformats the urls into an excel hyperlink
 excelpets = ["=HYPERLINK(\"" + e + "\", \"Petition\")" for e in petitions]
 excelcares = ["=HYPERLINK(\"" + e + "\", \"Cares Verification\")" for e in cares]
 
+#manually check if all match
 print(len(url1))
 print(len(petitions))
 print(len(cares))
 print("done!")
 
+#set download folder
 os.chdir("C:/Users/AnthonySeverin/TIFs")
 count = 1
 
@@ -169,20 +180,22 @@ while i <= count:
 
     if address2 == []:
         address2 = re.findall("(?<=resides at).*", text)
-
-    print(count)
-    print(address1)
-    print(address2)
-    print(text)
     
-    #append to addresslists
+    #append addresses to addresslists
     address1list.append(address1)
     address2list.append(address2)
     
-    #send to dataframes so pandas can export to csv
+    print(count)
+    #print(address1)
+    #print(address2)
+    #print(text)
+    
+#send to dataframes so pandas can export to csv
 excellinks = ["=HYPERLINK(\"" + e + "\", \"Summary\")" for e in url1]
 
 df = pd.DataFrame()
+
+#set up columns and writes from variables
 df["Docket Number"] = dockets
 df["Captions"] = captions
 df["Docket Links"] = excellinks
@@ -194,4 +207,3 @@ df["Atty1"] = atty1
 df["Atty2"] = atty2
 
 df.to_csv('evictions.csv', index=False)
-    
