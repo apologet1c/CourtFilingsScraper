@@ -13,10 +13,11 @@ br.set_handle_robots(False)   # ignore robots.txt
 br.set_handle_refresh(False)  # can sometimes hang without this
 
 
-
 #PART 1: SETUP
 #get url from user
-docketurl = input("What is the docket URL? ") #example input: https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeCaseTypeAll&errorcheck=true&Judge=1012&database=&db=Tulsa&CaseTypeID=26&StartDate=09%2F30%2F2021&GeneralNumber=1&generalnumber1=1&GeneralCheck=on
+blank123 = input("Before we begin, have you checked that (1) the TIFs folder is empty and (2) the .exe is in the same folder as the TIFs folder (but not in the TIFs folder)? (y/n)")
+docketurl = input("What is the docket URL? ") #example input: https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeCaseTypeAll&errorcheck=true&Judge=1012&database=&db=Tulsa&CaseTypeID=26&StartDate=10%2F06%2F2021&GeneralNumber=1&generalnumber1=1&GeneralCheck=on
+print("Thank you, now finding links.")
 
 #get the docket list
 page = br.open(docketurl)
@@ -25,7 +26,6 @@ html = page.read().decode("utf-8")
 #now generate links to every case on the docket and add to a urls list
 snippets = re.findall("GetCaseInformation.asp\?submitted=true&db=Tulsa&casemasterid=\d+", html)
 urls = ["https://www.oscn.net/applications/oscn/" + e for e in snippets]
-
 
 
 #PART 2: SCRAPING LINKS
@@ -122,21 +122,27 @@ print(len(docketnums))
 print(len(url1))
 print(len(petitions))
 print(len(cares))
+print("Done finding links. Now downloading files.")
 
 
 
 #PART 3: DOWNLOAD IMAGE FILES OF THE PETITIONS
 #set download folder
 os.chdir("C:/Users/AnthonySeverin/TIFs")
+
 count = 1
 
 for i in petitions:  
     #pulls down tif files from OSCN
-    r = requests.get(i, allow_redirects=True)
-    filename = str(count) + ".tif"
-    newfilename = str(count) + ".png"
-    open(filename, 'wb').write(r.content)
-    
+    try:
+        r = requests.get(i, allow_redirects=True)
+        filename = str(count) + ".tif"
+        newfilename = str(count) + ".png"
+        open(filename, 'wb').write(r.content)
+    except:
+        print("MISSING " + count)
+        count = count + 1
+        continue
     #convert from tif to pdf
     im = Image.open(filename)
     for i, page in enumerate(ImageSequence.Iterator(im)): #kernel crashes unless it's done this way for some ungodly reason
@@ -145,12 +151,11 @@ for i in petitions:
     #increment counter for filenames
     count = count + 1
     print(count)
-print("done")
+print("Done downloading files. Now running OCR.")
 
 
 
 #PART 4: OCR PETITION AND RECOGNIZE ADDRESSES
-
 #now we call the textract wrapper and initialize address lists
 client = boto3.client('textract')
 address1list = []
@@ -171,13 +176,26 @@ while i <= count:
     try:
         with open(filename, 'rb') as document:
             img = bytearray(document.read())
+    
     except:
-        print("Found all files.")
-        break
+        #what if there isn't something uploaded? can't just end, gotta check the next one too.
+        try:
+            print("MISSING " + count)
+            count = count + 1
+            filename = str(count) + ".png"
+            with open(filename, 'rb') as document:
+                img = bytearray(document.read())
+        except: # if it fails twice--i.e. if there are two missing files in a row
+            print("Found all files.")
+            break
+
+        #if there's just one missing file
+        address1 = "No petition on OSCN."
+        address2 = "No petition on OSCN."
 
     #call textract
     response = client.detect_document_text(Document={'Bytes': img})
-
+ 
     #Textract returns one line at a time, so we'll join it all into a single string
     text = ""
     for item in response["Blocks"]:
@@ -205,23 +223,37 @@ while i <= count:
     #print(address1)
     #print(address2)
     #print(text)
+print("Done running OCR. Now exporting to Excel.")
 
  
     
 #PART 5: EXPORT TO EXCEL
-
 #send to dataframes so pandas can export to csv
 df = pd.DataFrame()
 
 #set up columns and writes from variables
-df["Docket Number"] = docketnums
-df["Captions"] = captions
-df["Docket Links"] = excellinks
-df["Petition"] = excelpets
-df["Cares Act Affidavit"] = excelcares
-df["ResAdd"] = address1list
-df["MailAdd"] = address2list
-df["Atty1"] = atty1
-df["Atty2"] = atty2
+try:
+    df["Docket Number"] = docketnums
+    df["Captions"] = captions
+    df["Docket Links"] = excellinks
+    df["Petition"] = excelpets
+    df["Cares Act Affidavit"] = excelcares
+    df["ResAdd"] = address1list
+    df["MailAdd"] = address2list
+    df["Atty1"] = atty1
+    df["Atty2"] = atty2
+except:
+    print("Excel export failed, trying without addresses.")
+    df["Docket Number"] = docketnums
+    df["Captions"] = captions
+    df["Docket Links"] = excellinks
+    df["Petition"] = excelpets
+    df["Cares Act Affidavit"] = excelcares
+    #df["ResAdd"] = address1list
+    #df["MailAdd"] = address2list
+    df["Atty1"] = atty1
+    df["Atty2"] = atty2
 
 df.to_csv('evictions.csv', index=False) #look in the TIFs folder
+print("Done exporting to Excel.")
+input("Done. Press enter to close this window.")
