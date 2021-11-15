@@ -128,7 +128,9 @@ print("Done finding links. Now downloading files.")
 
 #PART 3: DOWNLOAD IMAGE FILES OF THE PETITIONS
 #set download folder
-os.chdir("C:/Users/AnthonySeverin/TIFs")
+current_directory = os.getcwd()
+tifs_directory = current_directory + "\\TIFs"
+os.chdir(tifs_directory)
 
 count = 1
 
