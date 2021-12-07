@@ -2,9 +2,6 @@ import mechanize
 import pandas as pd
 import re
 import os
-import requests
-import boto3
-from PIL import Image, ImageSequence
 
 pd.options.mode.chained_assignment = None #stop pandas from throwing errors
 
@@ -14,8 +11,7 @@ br.set_handle_refresh(False)  # can sometimes hang without this
 
 #PART 1: SETUP
 #get url from user
-blank123 = input("Before we begin, have you checked that (1) the TIFs folder is empty and (2) the .exe is in the same folder as the TIFs folder (but not in the TIFs folder)? (y/n)")
-docketurl = input("What is the docket URL? ") #example input: https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeCaseTypeAll&errorcheck=true&Judge=1012&database=&db=Tulsa&CaseTypeID=26&StartDate=10%2F06%2F2021&GeneralNumber=1&generalnumber1=1&GeneralCheck=on
+docketurl = input("What is the docket URL? ")
 print("Thank you, now finding links.")
 
 #get the docket list
@@ -35,10 +31,12 @@ petitions = []
 cares = []
 atty1 = []
 atty2 = []
+count = 0
 
 #open each docket summary URL
 for i in urls:
-    
+    count = count + 1
+    print(count)
     try:
         #open page
         page = br.open(i)
@@ -121,38 +119,8 @@ print(len(docketnums))
 print(len(url1))
 print(len(petitions))
 print(len(cares))
-print("Now downloading files.")
 
-#PART 3: DOWNLOAD IMAGE FILES OF THE PETITIONS
-#set download folder
-current_directory = os.getcwd()
-tifs_directory = current_directory + "\\TIFs"
-os.chdir(tifs_directory)
-
-count = 1
-
-for i in petitions:  
-    #pulls down tif files from OSCN
-    try:
-        r = requests.get(i, allow_redirects=True)
-        filename = str(count) + ".tif"
-        newfilename = str(count) + ".png"
-        open(filename, 'wb').write(r.content)
-    except:
-        print("MISSING " + count)
-        count = count + 1
-        continue
-    #convert from tif to pdf
-    im = Image.open(filename)
-    for i, page in enumerate(ImageSequence.Iterator(im)): #kernel crashes unless it's done this way for some ungodly reason
-        page.save(newfilename)
-        break
-    #increment counter for filenames
-    count = count + 1
-    print(count)
-print("Done downloading files. Now exporting to excel.")
-
-#PART 4: EXPORT TO EXCEL
+#PART 3: EXPORT TO EXCEL
 #send to dataframes so pandas can export to csv
 df = pd.DataFrame()
 
@@ -165,6 +133,6 @@ df["Cares Act Affidavit"] = excelcares
 df["Atty1"] = atty1
 df["Atty2"] = atty2
 
-df.to_csv('evictions.csv', index=False) #look in the TIFs folder
-print("Done exporting to Excel. Output saved as evictions.csv in the TIFs folder.")
+df.to_csv('evictions.csv', index=False)
+print("Done exporting to Excel. Output saved as evictions.csv in the folder where this .exe is located.")
 input("Press enter to close this window.")
