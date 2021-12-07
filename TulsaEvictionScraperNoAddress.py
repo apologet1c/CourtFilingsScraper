@@ -2,7 +2,7 @@ import mechanize
 import pandas as pd
 import re
 import os
-
+ 
 pd.options.mode.chained_assignment = None #stop pandas from throwing errors
 
 br = mechanize.Browser()
