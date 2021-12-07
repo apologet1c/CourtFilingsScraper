@@ -156,7 +156,6 @@ for i in petitions:
 print("Done downloading files. Now running OCR.")
 
 
-
 #PART 4: OCR PETITION AND RECOGNIZE ADDRESSES
 #now we call the textract wrapper and initialize address lists
 client = boto3.client('textract')
