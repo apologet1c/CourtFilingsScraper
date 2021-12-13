@@ -242,7 +242,7 @@ while i <= count:
     #append addresses to addresslists
     address1list.append(address1)
     address2list.append(address2)
-    allmoney.appened(money)
+    allmoney.append(money)
     
     print(count)    
 
