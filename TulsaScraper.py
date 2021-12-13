@@ -37,6 +37,7 @@ petitions = []
 cares = []
 atty1 = []
 atty2 = []
+dismissedlist = []
 
 #open each docket summary URL
 for i in urls:
@@ -52,13 +53,13 @@ for i in urls:
 
     except:
         #we don't want it in the list if not FED or if link doesn't exist
-        print("dropping") 
+        print("dropped non-FED case") 
     
     #only add the FEDs to list url1
     if testfed is True:
         url1.append(i)
     else:
-        print("dropping")
+        print("dropped non-FED case")
         continue
     
     #now we get the docket number and add to a list
@@ -98,6 +99,14 @@ for i in urls:
     atty = []
     atty = re.findall("(?<=\t\t\t\t)(.*)(?=\(Bar # \d+)", html)
     
+    dismissed = []
+    dismissed = re.findall("dismissed", html)
+    try:
+        dismissedlist.append(dismissed[0])
+    except:
+        dismissed = [" ", " "]
+        dismissedlist.append(dismissed[0])
+    
     #tries to append first name
     try:
         atty1.append(atty[0])
@@ -118,12 +127,12 @@ excelpets = ["=HYPERLINK(\"" + e + "\", \"Petition\")" for e in petitions]
 excelcares = ["=HYPERLINK(\"" + e + "\", \"Cares Verification\")" for e in cares]
 
 #manually check if all match
+print("Done. Found the following number of FED cases:")
 print(len(docketnums))
 print(len(url1))
 print(len(petitions))
 print(len(cares))
-print("Done finding links. Now downloading files.")
-
+print("Now downloading files.")
 
 
 #PART 3: DOWNLOAD IMAGE FILES OF THE PETITIONS
@@ -161,6 +170,7 @@ print("Done downloading files. Now running OCR.")
 client = boto3.client('textract')
 address1list = []
 address2list = []
+allmoney = []
 alltext = []
 count = 0
 
@@ -216,18 +226,30 @@ while i <= count:
     if address2 == []:
         address2 = re.findall("(?<=resides at).*", text)
     
+    #now pull the amount owed
+    money = re.findall("(?<=owes the plaintiff).*", text)
+    
+    if money == [' $']:
+        #look on the next line if nothing found
+        money = re.findall("owes.the.plaintiff..[\r\n]+([^\r\n]+)", text)
+        if money == ['for rent and $']:
+            money = ['.']
+        if money == ['for damages to']:
+            money = ['.']
+        if money == ['for rent and S']:
+            money = ['.']
+        
     #append addresses to addresslists
     address1list.append(address1)
     address2list.append(address2)
+    allmoney.appened(money)
     
-    print(count)
-    #print(address1)
-    #print(address2)
-    #print(text)
+    print(count)    
+
 print("Done running OCR. Now exporting to Excel.")
 
- 
-    
+
+
 #PART 5: EXPORT TO EXCEL
 #send to dataframes so pandas can export to csv
 df = pd.DataFrame()
@@ -241,8 +263,10 @@ try:
     df["Cares Act Affidavit"] = excelcares
     df["ResAdd"] = address1list
     df["MailAdd"] = address2list
+    df["Rent"] = allmoney
     df["Atty1"] = atty1
     df["Atty2"] = atty2
+    df["Text"] = alltext
 except:
     print("Excel export failed, trying without addresses.")
     df["Docket Number"] = docketnums
@@ -252,9 +276,10 @@ except:
     df["Cares Act Affidavit"] = excelcares
     #df["ResAdd"] = address1list
     #df["MailAdd"] = address2list
+    #df["Rent"] = allmoney
     df["Atty1"] = atty1
     df["Atty2"] = atty2
 
 df.to_csv('evictions.csv', index=False) #look in the TIFs folder
-print("Done exporting to Excel.")
-input("Done. Press enter to close this window.")
+print("Done exporting to Excel. Output saved as evictions.csv in the TIFs folder.")
+input("Press enter to close this window.")
