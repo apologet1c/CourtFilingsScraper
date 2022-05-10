@@ -68,7 +68,7 @@ for i in urls:
     
     #now we get the case caption
     caption = ""
-    caption = re.findall("SC-\d+-\d+- [\r\n]+([^\r\n]+)", html)
+    caption = re.findall("SC-\d+-\d+- [\r\n\t]+([^\r\n]+)", html)
     captions.append(caption[0])
     
     #generate file links
