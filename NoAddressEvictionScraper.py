@@ -70,34 +70,34 @@ for i in urls:
     plaintiffs.append(plaintiff[0])
     defendants.append(defendant[0])
 
-    # generate file links
-    caseID = i.replace(
-        'https://www.oscn.net/applications/oscn/GetCaseInformation.asp?submitted=true&db=Tulsa&casemasterid=', '')
-    barcodes = re.findall("barcode=\d+", html)
+    #get file links, which are in the form of getimage.tif\?submitted=true&casemasterid=\d+&db=.*&barcode=\d+
+    barcodelinks = re.findall("getimage\.tif\?submitted=true&amp;casemasterid=\d+&amp;db=.*&amp;barcode=\d+", html)
+
+    #remove amp; from barcodelinks
+    barcodelinks = [e.replace("amp;", "") for e in barcodelinks]
+
+    #add https://www.oscn.net/applications/oscn/ to each link
+    barcodelinks = ["https://www.oscn.net/applications/oscn/" + e for e in barcodelinks]
 
     # what if we don't find any documents?
-    if len(barcodes) == 0:
+    if len(barcodelinks) == 0:
         print("zero")
         petitions.append("NONE")
         cares.append("NONE")
 
     # what if we find one document?
-    if len(barcodes) == 1:
-        petitioncode = barcodes[0]
-        carescode = "NONE"
-        petitions.append(
-            "https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + petitioncode)
+    if len(barcodelinks) == 1:
+        petitions.append(barcodelinks[0])
         cares.append("NONE")
 
     # what if we find 2+ documents?
-    if len(barcodes) >= 2:
-        petitioncode = barcodes[0]
-        carescode = barcodes[1]
-        petitions.append(
-            "https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + petitioncode)
-        cares.append(
-            "https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + carescode)
+    if len(barcodelinks) >= 2:
+        petitions.append(barcodelinks[0])
+        cares.append(barcodelinks[1])
 
+    print(barcodelinks)
+    print(petitions)
+    input("press enter to continue")
     # now we get the attorneys who have registered appearances and drop the names into lists
     atty = []
     atty = re.findall("(?<=\t\t\t\t)(.*)(?=\(Bar # \d+)", html)
@@ -142,7 +142,7 @@ df["Plaintiff"] = plaintiffs
 df["Defendant"] = defendants
 df["Docket Links"] = excellinks
 df["Petition"] = excelpets
-df["Cares Act Affidavit"] = excelcares
+df["Document2"] = excelcares
 df["Atty1"] = atty1
 df["Atty2"] = atty2
 
