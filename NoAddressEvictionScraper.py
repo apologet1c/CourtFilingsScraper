@@ -95,9 +95,6 @@ for i in urls:
         petitions.append(barcodelinks[0])
         cares.append(barcodelinks[1])
 
-    print(barcodelinks)
-    print(petitions)
-    input("press enter to continue")
     # now we get the attorneys who have registered appearances and drop the names into lists
     atty = []
     atty = re.findall("(?<=\t\t\t\t)(.*)(?=\(Bar # \d+)", html)
