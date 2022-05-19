@@ -6,120 +6,118 @@ import requests
 import boto3
 from PIL import Image, ImageSequence
 
-pd.options.mode.chained_assignment = None #stop pandas from throwing errors
+pd.options.mode.chained_assignment = None # stop pandas from throwing errors
 
 br = mechanize.Browser()
 br.set_handle_robots(False)   # ignore robots.txt
 br.set_handle_refresh(False)  # can sometimes hang without this
 
-
-#PART 1: SETUP
-#get url from user
-blank123 = input("Before we begin, have you checked that (1) the TIFs folder is empty and (2) the .exe is in the same folder as the TIFs folder (but not in the TIFs folder)? (y/n)")
-docketurl = input("What is the docket URL? ") #example input: https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeCaseTypeAll&errorcheck=true&Judge=1012&database=&db=Tulsa&CaseTypeID=26&StartDate=10%2F06%2F2021&GeneralNumber=1&generalnumber1=1&GeneralCheck=on
+# PART 1: SETUP
+# get url from user
+docketurl = input("What is the docket URL? ") # example input: https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeCaseTypeAll&errorcheck=true&Judge=1012&database=&db=Tulsa&CaseTypeID=26&StartDate=10%2F06%2F2021&GeneralNumber=1&generalnumber1=1&GeneralCheck=on
 print("Thank you, now finding links.")
 
-#get the docket list
+# get the docket list
 page = br.open(docketurl)
 html = page.read().decode("utf-8")
 
-#now generate links to every case on the docket and add to a urls list
-snippets = re.findall("GetCaseInformation.asp\?submitted=true&db=Tulsa&casemasterid=\d+", html)
+# now generate links to every case on the docket and add to a urls list
+snippets = re.findall("GetCaseInformation.asp\?submitted=true&db=.*&casemasterid=\d+", html)
 urls = ["https://www.oscn.net/applications/oscn/" + e for e in snippets]
 
-
-#PART 2: SCRAPING LINKS
-#initialize all lists
+# PART 2: SCRAPING LINKS
+# initialize all lists
 docketnums = []
-captions = []
+plaintiffs = []
+defendants = []
 url1 = []
 petitions = []
 cares = []
 atty1 = []
 atty2 = []
-dismissedlist = []
+count = 0
 
-#open each docket summary URL
+# open each docket summary URL
 for i in urls:
-    
+    count = count + 1
     try:
-        #open page
+        # open page
         page = br.open(i)
         html = page.read().decode("utf-8", errors='ignore')
-        
-        #test to see if it's an FED
+
+        # test to see if it's an FED
         match = re.search("FORCIBLE ENTRY", html)
         testfed = bool(match)
 
     except:
-        #we don't want it in the list if not FED or if link doesn't exist
-        print("dropped non-FED case") 
-    
-    #only add the FEDs to list url1
+        # we don't want it in the list if not FED or if link doesn't exist
+        print("something is broken")
+
+        # only add the FEDs to list url1
     if testfed is True:
         url1.append(i)
     else:
         print("dropped non-FED case")
         continue
-    
-    #now we get the docket number and add to a list
+
+    # now we get the docket number and add to a list
     docketnum = re.findall("SC-\d+-\d+", html)[0]
     docketnums.append(docketnum)
-    
-    #now we get the case caption
-    caption = ""
-    caption = re.findall("SC-\d+-\d+- [\r\n\t]+([^\r\n]+)", html)
-    captions.append(caption[0])
-    
-    #generate file links
-    caseID = i.replace('https://www.oscn.net/applications/oscn/GetCaseInformation.asp?submitted=true&db=Tulsa&casemasterid=', '')
-    barcodes = re.findall("barcode=\d+", html)
-    
-    #what if we don't find any documents?
-    if len(barcodes) == 0:
+    print(docketnum)
+
+    # now we get the case caption
+    caption = re.findall("SC-\d+-\d+- [\r\n]+([^\r\n]+)", html)
+
+    # split out plaintiff and defendant
+    plaintiff = re.findall("^\t(.*)\sv.\s", caption[0])
+    defendant = re.findall("\sv.\s(.*)$", caption[0])
+    plaintiffs.append(plaintiff[0])
+    defendants.append(defendant[0])
+
+    #get file links, which are in the form of getimage.tif\?submitted=true&casemasterid=\d+&db=.*&barcode=\d+
+    barcodelinks = re.findall("getimage\.tif\?submitted=true&amp;casemasterid=\d+&amp;db=.*&amp;barcode=\d+", html)
+
+    #remove amp; from barcodelinks
+    barcodelinks = [e.replace("amp;", "") for e in barcodelinks]
+
+    #add https://www.oscn.net/applications/oscn/ to each link
+    barcodelinks = ["https://www.oscn.net/applications/oscn/" + e for e in barcodelinks]
+
+    # what if we don't find any documents?
+    if len(barcodelinks) == 0:
         print("zero")
         petitions.append("NONE")
         cares.append("NONE")
 
-    #what if we find one document?
-    if len(barcodes) == 1:
-        petitioncode = barcodes[0]
-        carescode = "NONE"
-        petitions.append("https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + petitioncode)
+    # what if we find one document?
+    if len(barcodelinks) == 1:
+        petitions.append(barcodelinks[0])
         cares.append("NONE")
 
-    #what if we find 2+ documents?
-    if len(barcodes) >= 2:
-        petitioncode = barcodes[0]
-        carescode = barcodes[1]
-        petitions.append("https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + petitioncode)
-        cares.append("https://www.oscn.net/applications/oscn/getimage.tif?submitted=true&casemasterid=" + caseID + "&db=TULSA&" + carescode)
+    # what if we find 2+ documents?
+    if len(barcodelinks) >= 2:
+        petitions.append(barcodelinks[0])
+        cares.append(barcodelinks[1])
 
-    #now we get the attorneys who have registered appearances and drop the names into lists
+    # now we get the attorneys who have registered appearances and drop the names into lists
     atty = []
     atty = re.findall("(?<=\t\t\t\t)(.*)(?=\(Bar # \d+)", html)
-    
-    dismissed = []
-    dismissed = re.findall("dismissed", html)
-    try:
-        dismissedlist.append(dismissed[0])
-    except:
-        dismissed = [" ", " "]
-        dismissedlist.append(dismissed[0])
-    
-    #tries to append first name
+
+    # tries to append first name
     try:
         atty1.append(atty[0])
     except:
         atty = [" ", " "]
         atty1.append(atty[0])
-    
-    #tries to append a second name
+
+    # tries to append a second name
     try:
-        atty2.append(atty[1]) 
+        atty2.append(atty[1])
     except:
         atty = [" ", " "]
         atty2.append(atty[1])
+
+print("done")
 
 #reformats the urls into excel hyperlinks
 excellinks = ["=HYPERLINK(\"" + e + "\", \"Summary\")" for e in url1]
@@ -132,19 +130,17 @@ print(len(docketnums))
 print(len(url1))
 print(len(petitions))
 print(len(cares))
-print("Now downloading files.")
 
-
-#PART 3: DOWNLOAD IMAGE FILES OF THE PETITIONS
-#set download folder
+# PART 3: DOWNLOAD IMAGE FILES OF THE PETITIONS
+# set download folder
 current_directory = os.getcwd()
 tifs_directory = current_directory + "\\TIFs"
 os.chdir(tifs_directory)
 
 count = 1
 
-for i in petitions:  
-    #pulls down tif files from OSCN
+for i in petitions:
+    # pulls down tif files from OSCN
     try:
         r = requests.get(i, allow_redirects=True)
         filename = str(count) + ".tif"
@@ -154,19 +150,19 @@ for i in petitions:
         print("MISSING " + count)
         count = count + 1
         continue
-    #convert from tif to pdf
+    # convert from tif to pdf
     im = Image.open(filename)
-    for i, page in enumerate(ImageSequence.Iterator(im)): #kernel crashes unless it's done this way for some ungodly reason
+    for i, page in enumerate(
+            ImageSequence.Iterator(im)):  # kernel crashes unless it's done this way for some ungodly reason
         page.save(newfilename)
         break
-    #increment counter for filenames
+    # increment counter for filenames
     count = count + 1
     print(count)
 print("Done downloading files. Now running OCR.")
 
-
-#PART 4: OCR PETITION AND RECOGNIZE ADDRESSES
-#now we call the textract wrapper and initialize address lists
+# PART 4: OCR PETITION AND RECOGNIZE ADDRESSES
+# now we call the textract wrapper and initialize address lists
 client = boto3.client('textract')
 address1list = []
 address2list = []
@@ -174,63 +170,67 @@ allmoney = []
 alltext = []
 count = 0
 
-#open each image and read it
+# open each image and read it
 while i <= count:
-    
-    #clear variables and set count
+
+    # clear variables and set count
     address1 = []
     address2 = []
     count = count + 1
     filename = str(count) + ".png"
-    
-    #open file
+
+    # open file
     try:
         with open(filename, 'rb') as document:
             img = bytearray(document.read())
-    
+
     except:
-        #what if there isn't something uploaded? can't just end, gotta check the next one too.
+        # what if there isn't something uploaded? can't just end, gotta check the next one too.
         try:
             print("MISSING " + count)
             count = count + 1
             filename = str(count) + ".png"
             with open(filename, 'rb') as document:
                 img = bytearray(document.read())
-        except: # if it fails twice--i.e. if there are two missing files in a row
+        except:  # if it fails twice--i.e. if there are two missing files in a row
             print("Found all files.")
             break
 
-        #if there's just one missing file
+        # if there's just one missing file
         address1 = "No petition on OSCN."
         address2 = "No petition on OSCN."
 
-    #call textract
+    # call textract
     response = client.detect_document_text(Document={'Bytes': img})
- 
-    #Textract returns one line at a time, so we'll join it all into a single string
+
+    # Textract returns one line at a time, so we'll join it all into a single string
     text = ""
     for item in response["Blocks"]:
         if item["BlockType"] == "LINE":
             text += "\n" + item["Text"]
-    
+
     alltext.append(text)
-    
-    #use regex to pull out addresses on the next line
+
+    # use regex to pull out addresses on the next line
     address1 = re.findall("(?<=address is\n).*", text)
     address2 = re.findall("(?<=resides at\n).*", text)
-    
-    #if that fails, try looking on the same line
+
+    # if that fails, try looking on the same line
     if address1 == []:
         address1 = re.findall("(?<=address is).*", text)
+    if address1 == []:
+        address1 = ['.']
 
     if address2 == []:
         address2 = re.findall("(?<=resides at).*", text)
-    
-    #now pull the amount owed
+    if address2 == []:
+        address2 = ['.']
+
+    # now pull the amount owed
     money = re.findall("(?<=owes the plaintiff).*", text)
-    
+
     if money == [' $']:
-        #look on the next line if nothing found
+        # look on the next line if nothing found
         money = re.findall("owes.the.plaintiff..[\r\n]+([^\r\n]+)", text)
         if money == ['for rent and $']:
             money = ['.']
@@ -238,16 +238,18 @@ while i <= count:
             money = ['.']
         if money == ['for rent and S']:
             money = ['.']
-        
-    #append addresses to addresslists
-    address1list.append(address1)
-    address2list.append(address2)
-    allmoney.append(money)
-    
-    print(count)    
+
+    # if literally nothing is found
+    if money == []:
+        money = ['.']
+    # append addresses to addresslists
+    address1list.append(address1[0])
+    address2list.append(address2[0])
+    allmoney.append(money[0])
+
+    print(count)
 
 print("Done running OCR. Now exporting to Excel.")
-
 
 
 #PART 5: EXPORT TO EXCEL
@@ -257,10 +259,11 @@ df = pd.DataFrame()
 #set up columns and writes from variables
 try:
     df["Docket Number"] = docketnums
-    df["Captions"] = captions
+    df["Plaintiff"] = plaintiffs
+    df["Defendant"] = defendants
     df["Docket Links"] = excellinks
     df["Petition"] = excelpets
-    df["Cares Act Affidavit"] = excelcares
+    df["Document2"] = excelcares
     df["ResAdd"] = address1list
     df["MailAdd"] = address2list
     df["Rent"] = allmoney
@@ -270,10 +273,11 @@ try:
 except:
     print("Excel export failed, trying without addresses.")
     df["Docket Number"] = docketnums
-    df["Captions"] = captions
+    df["Plaintiff"] = plaintiffs
+    df["Defendant"] = defendants
     df["Docket Links"] = excellinks
     df["Petition"] = excelpets
-    df["Cares Act Affidavit"] = excelcares
+    df["Document2"] = excelcares
     #df["ResAdd"] = address1list
     #df["MailAdd"] = address2list
     #df["Rent"] = allmoney
@@ -281,5 +285,5 @@ except:
     df["Atty2"] = atty2
 
 df.to_csv('evictions.csv', index=False) #look in the TIFs folder
-print("Done exporting to Excel. Output saved as evictions.csv in the TIFs folder.")
+print("Done exporting to Excel. Output saved as evictions.csv in the folder where this .exe is located.")
 input("Press enter to close this window.")
