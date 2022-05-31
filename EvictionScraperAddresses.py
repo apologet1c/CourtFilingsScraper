@@ -35,6 +35,7 @@ petitions = []
 cares = []
 atty1 = []
 atty2 = []
+allmoney = []
 count = 0
 
 # open each docket summary URL
@@ -73,6 +74,15 @@ for i in urls:
     defendant = re.findall("\sv.\s(.*)$", caption[0])
     plaintiffs.append(plaintiff[0])
     defendants.append(defendant[0])
+
+    money = re.findall("(?<=AMOUNT IN DEBT OF ).*", html)
+    if money == []:
+        money = ['.']
+    money = money[0]
+    money1 = re.findall("(\d\d+).*", money)
+    if money1 == []:
+        money1 = ['.']
+    allmoney.append(money1[0])
 
     #get file links, which are in the form of getimage.tif\?submitted=true&casemasterid=\d+&db=.*&barcode=\d+
     barcodelinks = re.findall("getimage\.tif\?submitted=true&amp;casemasterid=\d+&amp;db=.*&amp;barcode=\d+", html)
@@ -150,7 +160,7 @@ for i in petitions:
         print("MISSING " + count)
         count = count + 1
         continue
-    # convert from tif to pdf
+    # convert from tif to png
     im = Image.open(filename)
     for i, page in enumerate(
             ImageSequence.Iterator(im)):  # kernel crashes unless it's done this way for some ungodly reason
@@ -166,7 +176,6 @@ print("Done downloading files. Now running OCR.")
 client = boto3.client('textract')
 address1list = []
 address2list = []
-allmoney = []
 alltext = []
 count = 0
 
@@ -218,6 +227,10 @@ while i <= count:
     # if that fails, try looking on the same line
     if address1 == []:
         address1 = re.findall("(?<=address is).*", text)
+    # if that fails, is this in Oklahoma county?
+    if address1 == []:
+        address1 = re.findall("(?<=as follows:\n).*\n.*", text)
+    # if that fails, all is lost
     if address1 == []:
         address1 = ['.']
 
@@ -226,31 +239,13 @@ while i <= count:
     if address2 == []:
         address2 = ['.']
 
-    # now pull the amount owed
-    money = re.findall("(?<=owes the plaintiff).*", text)
-
-    if money == [' $']:
-        # look on the next line if nothing found
-        money = re.findall("owes.the.plaintiff..[\r\n]+([^\r\n]+)", text)
-        if money == ['for rent and $']:
-            money = ['.']
-        if money == ['for damages to']:
-            money = ['.']
-        if money == ['for rent and S']:
-            money = ['.']
-
-    # if literally nothing is found
-    if money == []:
-        money = ['.']
     # append addresses to addresslists
     address1list.append(address1[0])
     address2list.append(address2[0])
-    allmoney.append(money[0])
 
     print(count)
 
 print("Done running OCR. Now exporting to Excel.")
-
 
 #PART 5: EXPORT TO EXCEL
 #send to dataframes so pandas can export to csv
@@ -270,6 +265,7 @@ try:
     df["Atty1"] = atty1
     df["Atty2"] = atty2
     df["Text"] = alltext
+
 except:
     print("Excel export failed, trying without addresses.")
     df["Docket Number"] = docketnums
