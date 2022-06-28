@@ -31,6 +31,7 @@ petitions = []
 cares = []
 atty1 = []
 atty2 = []
+allmoney = []
 count = 0
 
 # open each docket summary URL
@@ -57,18 +58,27 @@ for i in urls:
         continue
 
     # now we get the docket number and add to a list
-    docketnum = re.findall("SC-\d+-\d+", html)[0]
+    docketnum = re.findall("..-20\d+-\d+", html)[0]
     docketnums.append(docketnum)
     print(docketnum)
 
     # now we get the case caption
-    caption = re.findall("SC-\d+-\d+- [\r\n]+([^\r\n]+)", html)
+    caption = re.findall("..-20\d+-\d+- [\r\n]+([^\r\n]+)", html)
 
     # split out plaintiff and defendant
     plaintiff = re.findall("^\t(.*)\sv.\s", caption[0])
     defendant = re.findall("\sv.\s(.*)$", caption[0])
     plaintiffs.append(plaintiff[0])
     defendants.append(defendant[0])
+
+    money = re.findall("(?<=AMOUNT IN DEBT OF ).*", html)
+    if money == []:
+        money = ['.']
+    money = money[0]
+    money1 = re.findall("(\d\d+).*", money)
+    if money1 == []:
+        money1 = ['.']
+    allmoney.append(money1[0])
 
     #get file links, which are in the form of getimage.tif\?submitted=true&casemasterid=\d+&db=.*&barcode=\d+
     barcodelinks = re.findall("getimage\.tif\?submitted=true&amp;casemasterid=\d+&amp;db=.*&amp;barcode=\d+", html)
@@ -140,6 +150,7 @@ df["Defendant"] = defendants
 df["Docket Links"] = excellinks
 df["Petition"] = excelpets
 df["Document2"] = excelcares
+df["Rent"] = allmoney
 df["Atty1"] = atty1
 df["Atty2"] = atty2
 
