@@ -62,12 +62,12 @@ for i in urls:
         continue
 
     # now we get the docket number and add to a list
-    docketnum = re.findall("SC-\d+-\d+", html)[0]
+    docketnum = re.findall("..-20\d+-\d+", html)[0]
     docketnums.append(docketnum)
     print(docketnum)
 
     # now we get the case caption
-    caption = re.findall("SC-\d+-\d+- [\r\n]+([^\r\n]+)", html)
+    caption = re.findall("..-20\d+-\d+- [\r\n]+([^\r\n]+)", html)
 
     # split out plaintiff and defendant
     plaintiff = re.findall("^\t(.*)\sv.\s", caption[0])
