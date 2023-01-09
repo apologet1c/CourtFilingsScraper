@@ -5,9 +5,9 @@ import os
 import requests
 import boto3
 from PIL import Image, ImageSequence
-import ssl
+# import ssl
 
-ssl._create_default_https_context = ssl._create_unverified_context # because SSL certificates broke on 8/29 for some reason
+# ssl._create_default_https_context = ssl._create_unverified_context # because SSL certificates broke on 8/29 for some reason
 pd.options.mode.chained_assignment = None # stop pandas from throwing errors
 
 br = mechanize.Browser()
@@ -211,6 +211,8 @@ for i in petitions:
 
     except:
         print("MISSING " + str(count))
+        with open(newfilename, 'w') as fp:
+            pass
         count = count + 1
         continue
 
@@ -222,7 +224,8 @@ for i in petitions:
             page.save(newfilename)
             break
     except:
-        print("MISSING " + str(count))
+        with open(newfilename, 'w') as fp:
+            pass
         count = count + 1
         continue
     # increment counter for filenames
