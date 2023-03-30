@@ -27,6 +27,9 @@ journalentries = []
 voluntarydismissals = []
 courtdismissals = []
 alldismissed = []
+Unserved = []
+Personal = []
+Constructive = []
 
 for x in filelist:
     with open(x,'r', encoding='utf-8', errors = 'ignore') as src:
@@ -38,9 +41,9 @@ for x in filelist:
         url1.append(x)
         print(x)
 
-        match = re.search("TRANSFERRED", html)
+        match = re.search("TRANSFERRED", html, re.IGNORECASE)
         transfers.append(bool(match))
-        match = re.search("UNDER ADVISEMENT", html)
+        match = re.search("UNDER ADVISEMENT", html, re.IGNORECASE)
         advisements.append(bool(match))
         match = re.search("EXECUTION INSTRUCTION FORM", html, re.IGNORECASE)
         executionforms.append(bool(match))
@@ -56,6 +59,12 @@ for x in filelist:
         courtdismissals.append(bool(match))
         match = re.search("DISMISSED", html, re.IGNORECASE)
         alldismissed.append(bool(match))
+        match = re.search("unserved", html, re.IGNORECASE)
+        Unserved.append(bool(match)
+        match = re.search("PERS SERV", html, re.IGNORECASE)
+        Personal.append(bool(match))        
+        match = re.search("POSTED TO DOOR", html, re.IGNORECASE)
+        DLL.append(bool(match))      
 
     else:
         print("dropped non-FED case")
@@ -171,6 +180,9 @@ df["JEs"] = journalentries
 df["VoluntaryDismissal"] = voluntarydismissals
 df["CourtDismissal"] = courtdismissals
 df["Dismissed"] = alldismissed
+df["PersonalService"] = Personal
+df["ConstructiveService"] = Constructive
+df["Unserved"] = Unserved
 
 df.to_csv('evictions.csv', index=False) #look in the TIFs folder
 print("Done exporting to Excel. Output saved as evictions.csv in the folder where this .exe is located.")
