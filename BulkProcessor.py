@@ -30,6 +30,7 @@ alldismissed = []
 Unserved = []
 Personal = []
 Constructive = []
+Default = []
 
 for x in filelist:
     with open(x,'r', encoding='utf-8', errors = 'ignore') as src:
@@ -64,7 +65,9 @@ for x in filelist:
         match = re.search("PERS SERV", html, re.IGNORECASE)
         Personal.append(bool(match))        
         match = re.search("POSTED TO DOOR", html, re.IGNORECASE)
-        DLL.append(bool(match))      
+        Constructive.append(bool(match))
+        match = re.search("DEFENDANT APPEARED NOT", html, re.IGNORECASE)
+        Default.append(bool(match)) 
 
     else:
         print("dropped non-FED case")
@@ -183,6 +186,7 @@ df["Dismissed"] = alldismissed
 df["PersonalService"] = Personal
 df["ConstructiveService"] = Constructive
 df["Unserved"] = Unserved
+df["DefNoAppear"] = Default
 
 df.to_csv('evictions.csv', index=False) #look in the TIFs folder
 print("Done exporting to Excel. Output saved as evictions.csv in the folder where this .exe is located.")
