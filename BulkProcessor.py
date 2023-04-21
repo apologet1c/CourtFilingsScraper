@@ -65,8 +65,7 @@ for x in filelist:
         unserved.append(bool(match)
         match = re.search("PERS SERV", html, re.IGNORECASE)
         personal.append(bool(match))        
-        match = re.search("POSTED", html, re.IGNORECASE)
-                        # if Sheriff - POSTED, no.
+        match = re.search("SERVED - POST", html, re.IGNORECASE)
         constructive.append(bool(match))
         match = re.search("by serving", html, re.IGNORECASE)
         occservice.append(bool(match))
