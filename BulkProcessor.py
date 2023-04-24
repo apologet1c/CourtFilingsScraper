@@ -32,6 +32,7 @@ personal = []
 constructive = []
 default = []
 occservice = []
+appear = []
 
 for x in filelist:
     with open(x,'r', encoding='utf-8', errors = 'ignore') as src:
@@ -42,7 +43,9 @@ for x in filelist:
     if testfed is True:
         url1.append(x)
         print(x)
-
+        
+        match = re.search("Defendant appeared", html, re.IGNORECASE)
+        appear.append(bool(match))
         match = re.search("TRANSFERRED", html, re.IGNORECASE)
         transfers.append(bool(match))
         match = re.search("UNDER ADVISEMENT", html, re.IGNORECASE)
@@ -191,6 +194,7 @@ df["ConstructiveService"] = constructive
 df["OccupantService"] = occservice
 df["Unserved"] = unserved
 df["DefNoAppear"] = default
+df["DefAppear"] = appear                        
 
 df.to_csv('evictions.csv', index=False) #look in the TIFs folder
 print("Done exporting to Excel. Output saved as evictions.csv in the folder where this .exe is located.")
