@@ -1,13 +1,7 @@
 import csv
 import mechanize
-import pandas as pd
 import re
 import os
-import requests
-import boto3
-from PIL import Image, ImageSequence
-
-pd.options.mode.chained_assignment = None #stop pandas from throwing errors
 
 br = mechanize.Browser()
 br.set_handle_robots(False)   # ignore robots.txt
