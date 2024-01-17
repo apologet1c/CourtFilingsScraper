@@ -1,172 +1,16 @@
+import csv
 import mechanize
-import pandas as pd
 import re
 import os
 import requests
-import boto3
 from PIL import Image, ImageSequence
-# import ssl
-
-# ssl._create_default_https_context = ssl._create_unverified_context # because SSL certificates broke on 8/29 for some reason
-pd.options.mode.chained_assignment = None # stop pandas from throwing errors
+import boto3
+import threading
 
 br = mechanize.Browser()
 br.set_handle_robots(False)   # ignore robots.txt
 br.set_handle_refresh(False)  # can sometimes hang without this
 
-# PART 1: SETUP
-# get url from user
-docketurl = input("What is the docket URL? ") # example input: https://www.oscn.net/applications/oscn/report.asp?report=WebJudicialDocketJudgeAll&errorcheck=true&Judge=1058&database=&db=Tulsa&StartDate=9%2F13%2F22&GeneralNumber=1&generalnumber1=1&GeneralCheck=on
-print("Thank you, now finding links.")
-
-# get the docket list
-page = br.open(docketurl)
-html = page.read().decode("utf-8")
-
-# now generate links to every case on the docket and add to a urls list
-snippets = re.findall("GetCaseInformation.asp\?submitted=true&db=.*&casemasterid=\d+", html)
-urls = ["https://www.oscn.net/applications/oscn/" + e for e in snippets]
-
-# PART 2: SCRAPING LINKS
-# initialize all lists
-docketnums = []
-plaintiffs = []
-defendants = []
-url1 = []
-petitions = []
-cares = []
-atty1 = []
-atty2 = []
-allmoney = []
-count = 0
-
-# open each docket summary URL
-for i in urls:
-
-    count = count + 1
-    try:
-        # open page
-        page = br.open(i)
-        html = page.read().decode("utf-8", errors='ignore')
-
-        match = re.search("captcha", html)
-        testcaptcha = bool(match)
-
-    except:
-        # we don't want it in the list if not FED or if link doesn't exist
-        print("Something is wrong: check your internet connection?")
-
-        # only add the FEDs to list url1
-    if testcaptcha is True:
-        input("Captcha Detected. Please open browser, open a docket sheet on OSCN and do a captcha.")
-
-        # try again
-        try:
-            page = br.open(i)
-            html = page.read().decode("utf-8", errors='ignore')
-        except:
-            print("Something is wrong: check your internet connection?")
-
-    # test to see if it's an FED
-    match = re.search("FORCIBLE ENTRY", html)
-    testfed = bool(match)
-
-    if testfed is True:
-        url1.append(i)
-    else:
-        print("dropped non-FED case")
-        continue
-
-        # now we get the docket number and add to a list
-    docketnum = re.findall("..-20\d+-\d+", html)
-
-    if docketnum == []:
-        docketnum = ['captcha']
-
-    docketnums.append(docketnum[0])
-    print(docketnum[0])
-
-    # split out plaintiff and defendant
-    plaintiff = re.findall("(?<=td valign=\"center\" width=\"50%\">)(.*)(?=,)", html)
-    defendant = re.findall("v.<br />[\r\n]+([^\r\n]+)(.*)(?=,)", html)  # looks for the v. and then looks on the next line
-
-    if plaintiff == []:
-        plaintiff = ['.']
-    if defendant == []:
-        defendant = ['.']
-
-    plaintiffs.append(plaintiff[0])
-    defendants.append(defendant[0])
-
-    # now we get the amount sued for
-    money = re.findall("(?<=AMOUNT IN DEBT OF )(.*)(?= \+)", html)
-    if money == []:
-        money = re.findall("(?<=AMOUNT IN DEBT OF)(.*)(?= POSS)", html)  # captures the weird <..$..> that some clerks use
-    if money == []:
-        money = ['.']  # if nothing is found at all
-
-    allmoney.append(money[0])
-
-    # get barcodes that link to the specific files.
-    barcodelinks = re.findall("(&bc=\d+&fmt=tif)", html)
-
-    # remove amp; from barcodelinks
-    barcodelinks = [e.replace("amp;", "") for e in barcodelinks]
-
-    # append the barcode to the end of every link
-    barcodelinks = ["https://www.oscn.net/dockets/GetDocument.aspx?ct=tulsa" + e for e in barcodelinks]
-
-    # what if we don't find any documents?
-    if len(barcodelinks) == 0:
-        print("zero")
-        petitions.append("NONE")
-        cares.append("NONE")
-
-    # what if we find one document?
-    if len(barcodelinks) == 1:
-        petitions.append(barcodelinks[0])
-        cares.append("NONE")
-
-    # what if we find 2+ documents?
-    if len(barcodelinks) >= 2:
-        petitions.append(barcodelinks[0])
-        cares.append(barcodelinks[1])
-
-    # now we get the attorneys who have registered appearances and drop the names into lists
-    atty = []
-    atty = re.findall("(?<=\<td valign=\"top\" width=\"50%\"\>)(.*)(?=,&nbsp;)", html)
-
-    # (?<=<td valign=\"top\" width=\"50%\">) #(?!Bar #\d+)
-    # tries to append first name
-    try:
-        atty1.append(atty[0])
-    except:
-        atty = [" ", " "]
-        atty1.append(atty[0])
-
-    # tries to append a second name
-    try:
-        atty2.append(atty[1])
-    except:
-        atty = [" ", " "]
-        atty2.append(atty[1])
-
-print("Done with dockets.")
-
-# reformats the urls into excel hyperlinks
-excellinks = ["=HYPERLINK(\"" + e + "\", \"Summary\")" for e in url1]
-excelpets = ["=HYPERLINK(\"" + e + "\", \"Petition\")" for e in petitions]
-excelcares = ["=HYPERLINK(\"" + e + "\", \"NTQ\")" for e in cares]
-
-#manually check if all match
-print("Done. Found the following number of FED cases:")
-print(len(docketnums))
-print(len(url1))
-print(len(petitions))
-print(len(cares))
-
-# PART 3: DOWNLOAD IMAGE FILES OF THE PETITIONS
-# set download folder
 current_directory = os.getcwd()
 tifs_directory = current_directory + "\\TIFs"
 os.chdir(tifs_directory)
@@ -185,91 +29,82 @@ headers = {
     'Sec-Fetch-Dest': 'document',
     'Sec-Fetch-Mode': 'navigate',
     'Sec-Fetch-Site': 'same-origin',
-    'Sec-Fetch-User': '?1'
-}
+    'Sec-Fetch-User': '?1'}
 
-for i in petitions:
-    # pulls down tif files from OSCN
+#PART 1: SETUP
+#get url from user
+print("IMPORTANT MESSAGE: check that (1) the TIFs folder is empty and (2) the .exe is in the same folder as the TIFs folder (but not in the TIFs folder).")
+
+def get_docket_content(docket_url):
     try:
-        r = requests.get(i, allow_redirects=True, headers=headers) # , verify=False to ignore SSL certificates if necessary
-        filename = str(count) + ".tif"
-        newfilename = str(count) + ".png"
-        open(filename, 'wb').write(r.content)
+        page = br.open(docket_url)
+        html = page.read().decode("utf-8")
+        #now generate links to every case on the docket and add to a urls list
+        snippets = re.findall("GetCaseInformation.asp\?submitted=true&db=Tulsa&casemasterid=\d+", html)
+        urls = ["https://www.oscn.net/applications/oscn/" + e for e in snippets]
+        return urls
+    except Exception as e:
+        input(f"Error opening URL {docket_url}: {e}; press enter to end.")
+        return None
 
-        # check if we've been captcha'd
-        if os.path.getsize(filename) < 3000:
-            print(os.path.getsize(filename))
-            input("Captcha Detected. Please open browser, open a docket sheet on OSCN and do a captcha.")
-            os.remove(filename)
-            print("removed!")
-
-            #try again
-            r = requests.get(i, allow_redirects=True, headers=headers)  # , verify=False to ignore SSL certificates if necessary
-            filename = str(count) + ".tif"
-            newfilename = str(count) + ".png"
-            open(filename, 'wb').write(r.content)
-
-    except:
-        print("MISSING " + str(count))
-        with open(newfilename, 'w') as fp:
-            pass
-        count = count + 1
-        continue
-
-    # convert from tif to png
+def get_case_content(url):
     try:
-        im = Image.open(filename)
-        for i, page in enumerate(
-                ImageSequence.Iterator(im)):  # kernel crashes unless it's done this way for some ungodly reason
-            page.save(newfilename)
-            break
-    except:
-        with open(newfilename, 'w') as fp:
-            pass
-        count = count + 1
-        continue
-    # increment counter for filenames
-    count = count + 1
-    print(count)
-print("Done downloading files. Now running OCR.")
+        # open page
+        page = br.open(url)
+        html = page.read().decode("utf-8", errors='ignore')
+        match = re.search("captcha", html) # check for captcha
+        testcaptcha = bool(match)
+        
+        if testcaptcha is True: #pauses the script and tries again after user input
+            input("Captcha Detected. Please open browser, open a case on OSCN and do the captcha, then press enter to try again")
+            page = br.open(i)
+            html = page.read().decode("utf-8", errors='ignore')
+        return html
+    
+    except Exeception as e:
+        input(f"Something is wrong: check your internet connection: {e}")
+        return None
 
-# PART 4: OCR PETITION AND RECOGNIZE ADDRESSES
-# now we call the textract wrapper and initialize address lists
-client = boto3.client('textract')
-address1list = []
-address2list = []
-alltext = []
-count = 0
+def FED_processor(html):
+    try:
+        docketnum = re.findall("..-20\d+-\d+", html)
+        docketnum = docketnum[0]
 
-# open each image and read it
-while i <= count:
+        plaintiff = re.findall("(?<=td valign=\"center\" width=\"50%\">)(.*)(?=,)", html)
+        defendant = re.findall("v.<br />[\r\n]+([^\r\n]+)(.*)(?=,)", html)
 
-    # clear variables and set count
-    address1 = []
-    address2 = []
-    count = count + 1
-    filename = str(count) + ".png"
+        plaintiff = plaintiff[0] if plaintiff else '.'
+        defendant = defendant[0] if defendant else '.'
 
-    # open file
+        money = re.findall("(?<=AMOUNT IN DEBT OF )(.*)(?= \+)", html)
+        if not money:
+            money = re.findall("(?<=AMOUNT IN DEBT OF)(.*)(?= POSS)", html)
+        money = money[0] if money else '.'
+
+        # Clean the money string
+        money = re.sub(r'[^\d.]+', '', money)
+        money = re.sub(r'^\.*', '', money)
+
+        barcodelinks = re.findall("(&bc=\d+&fmt=tif)", html)
+        barcodelinks = [e.replace("amp;", "") for e in barcodelinks]
+        barcodelinks = ["https://www.oscn.net/dockets/GetDocument.aspx?ct=tulsa" + e for e in barcodelinks]
+
+        atty = re.findall("(?<=\<td valign=\"top\" width=\"50%\"\>)(.*)(?=,&nbsp;)", html)
+
+        return docketnum, plaintiff, defendant, money, barcodelinks, atty
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None, None, None, None, None, None
+    
+def process_ocr(filename):
     try:
         with open(filename, 'rb') as document:
+            print(filename)
             img = bytearray(document.read())
 
     except:
-        # what if there isn't something uploaded? can't just end, gotta check the next one too.
-        try:
-            print("MISSING " + str(count))
-            count = count + 1
-            filename = str(count) + ".png"
-            with open(filename, 'rb') as document:
-                img = bytearray(document.read())
-        except:  # if it fails twice--i.e. if there are two missing files in a row
             print("Found all files.")
-            break
-
-        # if there's just one missing file
-        address1 = "No petition on OSCN."
-        address2 = "No petition on OSCN."
 
     # call textract
     response = client.detect_document_text(Document={'Bytes': img})
@@ -301,47 +136,196 @@ while i <= count:
     if address2 == []:
         address2 = ['.']
 
-    # append addresses to addresslists
-    address1list.append(address1[0])
-    address2list.append(address2[0])
+    print(filename)
+    return (filename, address1, address2)
 
-    print(count)
+#initialize lists
+docketnums = []
+plaintiffs = []
+defendants = []
+petitions = []
+cares = []
+atty1 = []
+atty2 = []
+atty3 = []
+allmoney = []
+allhtml = [] 
+url1 = []
+nopetition = []
+client = boto3.client('textract')
+address1list = []
+address2list = []
+alltext = []
+count = count - 1
+address1 = []
+address2 = []
 
-print("Done running OCR. Now exporting to Excel.")
+docket_url = input("What is the docket URL? ")
+print("Thank you, now finding links.")
 
-#PART 5: EXPORT TO EXCEL
-#send to dataframes so pandas can export to csv
-df = pd.DataFrame()
+urls = get_docket_content(docket_url)
 
-#set up columns and writes from variables
-try:
-    df["Docket Number"] = docketnums
-    df["Plaintiff"] = plaintiffs
-    df["Defendant"] = defendants
-    df["Docket Links"] = excellinks
-    df["Petition"] = excelpets
-    df["Document2"] = excelcares
-    df["ResAdd"] = address1list
-    df["MailAdd"] = address2list
-    df["Rent"] = allmoney
-    df["Atty1"] = atty1
-    df["Atty2"] = atty2
-    df["Text"] = alltext
+for i in urls:
 
-except:
-    print("Excel export failed, trying without addresses.")
-    df["Docket Number"] = docketnums
-    df["Plaintiff"] = plaintiffs
-    df["Defendant"] = defendants
-    df["Docket Links"] = excellinks
-    df["Petition"] = excelpets
-    df["Document2"] = excelcares
-    #df["ResAdd"] = address1list
-    #df["MailAdd"] = address2list
-    df["Rent"] = allmoney
-    df["Atty1"] = atty1
-    df["Atty2"] = atty2
+    try:
+        html = get_case_content(i)
+        # test to see if it's an FED
+        match = re.search("FORCIBLE ENTRY", html)
+        testfed = bool(match)
+        if testfed is True:
+            url1.append(i)
+        else:
+            print("dropped non-FED case")
+            continue
+        allhtml.append(html)
+    except Exception as e:
+        input(f"Error opening URL {docket_url}: {e}; press enter to end.")
+        continue
 
-df.to_csv('evictions.csv', index=False) #look in the TIFs folder
-print("Done exporting to Excel. Output saved as evictions.csv in the folder where this .exe is located.")
-input("Press enter to close this window.")
+for i in allhtml:
+    docketnum, plaintiff, defendant, money, barcodelinks, atty = FED_processor(i)
+    print(docketnum)
+    try:
+        docketnums.append(docketnum)
+        plaintiffs.append(plaintiff)
+        defendants.append(defendant[0])
+        allmoney.append(money)
+
+        # what if we don't find any documents?
+        if len(barcodelinks) == 0:
+            print("No Petition Uploaded")
+            petitions.append("NONE")
+            cares.append("NONE")
+            nopetition.append("TRUE")
+            
+        # what if we find one document?
+        if len(barcodelinks) == 1:
+            petitions.append(barcodelinks[0])
+            cares.append("NONE")
+            nopetition.append("FALSE")
+            
+        # what if we find 2+ documents?
+        if len(barcodelinks) >= 2:
+            petitions.append(barcodelinks[0])
+            cares.append(barcodelinks[1])
+            nopetition.append("FALSE")
+            
+        try:
+            atty1.append(atty[0])
+        except:
+            atty1.append(" ")
+
+        # tries to append a second name
+        try:
+            atty2.append(atty[1])
+        except:
+            atty2.append(" ")
+        try:
+            atty3.append(atty[2])
+        except:
+            atty3.append(" ")
+    except Exception as e: 
+        print(f"cannot process" + docketnum + {e})
+
+# reformats the urls into excel hyperlinks
+excellinks = ["=HYPERLINK(\"" + e + "\", \"Summary\")" for e in url1]
+excelpets = ["=HYPERLINK(\"" + e + "\", \"Petition\")" for e in petitions]
+excelcares = ["=HYPERLINK(\"" + e + "\", \"NTQ\")" for e in cares]
+
+#manually check if all match
+print("Done. Found the following number of FED cases:")
+print("Length of docketnums:", len(docketnums))
+print("Length of plaintiffs:", len(plaintiffs))
+print("Length of defendants:", len(defendants))
+print("Length of petitions:", len(petitions))
+print("Length of cares:", len(cares))
+print("Length of atty1:", len(atty1))
+print("Length of atty2:", len(atty2))
+print("Length of atty3:", len(atty3))
+print("Length of allmoney:", len(allmoney))
+
+for i in petitions:
+    # pulls down tif files from OSCN
+    filename = str(count) + ".tif"
+    newfilename = str(count) + ".png"
+
+    try:
+        r = requests.get(i, allow_redirects=True, headers=headers) # , verify=False to ignore SSL certificates if necessary
+        open(filename, 'wb').write(r.content)
+
+        # check if we've been captcha'd
+        if os.path.getsize(filename) < 3000:
+            print(os.path.getsize(filename))
+            input("Captcha Detected. Please open browser, open a docket sheet on OSCN and do a captcha.")
+            os.remove(filename)
+            print("removed!")
+
+            # try again
+            r = requests.get(i, allow_redirects=True, headers=headers)  # , verify=False to ignore SSL certificates if necessary
+            open(filename, 'wb').write(r.content)
+
+        im = Image.open(filename)
+        for i, page in enumerate(
+                ImageSequence.Iterator(im)):  # kernel crashes unless it's done this way for some ungodly reason
+            page.save(newfilename)
+            break
+        print("Downloaded " + str(count))
+              
+    except Exception as e:
+        print("Error:", e)
+        print(count)
+        Image.new('RGB', (100, 100), color = 'white').save(newfilename)
+    
+    count = count + 1
+    continue
+    
+print("Done downloading files. Now running OCR.")
+
+from threading import Thread, Lock
+import collections
+
+filenames = []
+ocr_results = collections.OrderedDict()
+lock = Lock()
+
+def thread_function(filename):
+    result = process_ocr(filename)
+    with lock:
+        ocr_results[result[0]] = (result[1], result[2])
+
+threads = []
+for x in os.listdir():
+    if x.endswith(".png"):
+        filenames.append(x)
+
+for filename in filenames:
+    thread = Thread(target=thread_function, args=(filename,))
+    threads.append(thread)
+    thread.start()
+
+for thread in threads:
+    thread.join()
+
+# Sort the results based on filenames or identifiers
+sorted_ocr_results = collections.OrderedDict(sorted(ocr_results.items()))
+
+address1list = [result[0] for result in sorted_ocr_results.values()]
+address2list = [result[1] for result in sorted_ocr_results.values()]
+
+output_csv = 'evictions.csv'
+
+#export
+with open(output_csv, 'w', newline='', encoding='utf-8') as csv_file:
+    writer = csv.writer(csv_file)
+    # Write the header row
+    writer.writerow(['Case Number', 'Plaintiff', 'Defendant', 'Docket Links', 'Petition', 'Document2', 'Rent', 'ResidesAt', 'Mailing', 'Atty1', 'Atty2', 'Atty3', 'AllText'])
+    for i in range(len(docketnums)):
+         writer.writerow([docketnums[i], plaintiffs[i], defendants[i], excellinks[i], excelpets[i], excelcares[i], allmoney[i], address1list[i], address2list[i], atty1[i], atty2[i], atty3[i], alltext[i]])
+print(f"Data exported to {output_csv}")
+
+#cleanup
+im.close()
+
+for filename in os.listdir(tifs_directory):
+    if filename.endswith('.tif') or filename.endswith('.png'):
+        os.remove(os.path.join(tifs_directory, filename))
