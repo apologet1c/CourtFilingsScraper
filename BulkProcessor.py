@@ -3,7 +3,7 @@ import re
 import csv
 
 current_directory = os.getcwd()
-directory = current_directory + "\\Small Claims\SC-23"
+directory = current_directory + "\\Small Claims\\SC-23FEDs"
 os.chdir(directory)
 
 # File path for the output CSV
@@ -26,6 +26,21 @@ def FED_processor(html):
         money = re.sub(r'[^\d.]+', '', money)
         money = re.sub(r'^\.*', '', money)
 
+        # Search for the filing date in the HTML content
+        filing_date_match = re.search(r"Filed:\s+(\d{2}/\d{2}/\d{4})", html)
+        closed_date_match = re.search(r"Closed:\s+(\d{2}/\d{2}/\d{4})", html)
+
+        # Extract and print the filing date if found
+        if filing_date_match:
+            filed = filing_date_match.group(1)
+        else:
+            filed = ""
+            
+        if closed_date_match:
+            closed = closed_date_match.group(1)
+        else:
+            closed = ""
+        
         barcodelinks = re.findall("(&bc=\d+&fmt=tif)", html)
         barcodelinks = [e.replace("amp;", "") for e in barcodelinks]
         barcodelinks = ["https://www.oscn.net/dockets/GetDocument.aspx?ct=tulsa" + e for e in barcodelinks]
@@ -48,6 +63,8 @@ def FED_processor(html):
             petition = barcodelinks[0]
             cares = barcodelinks[1]
         
+        petition = "=HYPERLINK(\"" + petition + "\", \"Petition\")"
+        cares = "=HYPERLINK(\"" + cares + "\", \"NTQ\")"
         #if no attorneys   
         try:
             atty1 = atty[0]
@@ -64,16 +81,16 @@ def FED_processor(html):
         except:
             atty3 = ""
 
-        return plaintiff, defendant, petition, cares, money, atty1, atty2, atty3
+        return plaintiff, defendant, petition, cares, filed, closed, money, atty1, atty2, atty3
     
     except Exception as e:
         print(f"An error occurred: {e}")
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
 
 # Regex pattern to identify characteristics
 pattern1 = re.compile(r'ANSWER', re.IGNORECASE)
 pattern2 = re.compile(r'TRANSFERRED', re.IGNORECASE)
-pattern3 = re.compile(r'Defendant appeared', re.IGNORECASE)
+pattern3 = re.compile(r'under advisement', re.IGNORECASE)
 pattern4 = re.compile(r'EXECUTION INSTRUCTION FORM', re.IGNORECASE)
 pattern5 = re.compile(r'EXECUTION RETURNED', re.IGNORECASE)
 pattern6 = re.compile(r'JOURNAL ENTRY OF JUDGMENT', re.IGNORECASE)
@@ -88,6 +105,7 @@ pattern14 = re.compile(r'by serving', re.IGNORECASE)
 pattern15 = re.compile(r'DEFENDANT APPEARED NOT', re.IGNORECASE)
 pattern16 = re.compile(r'Defendant appeared', re.IGNORECASE)
 pattern17 = re.compile(r'unserved', re.IGNORECASE)
+pattern18 = re.compile(r'served', re.IGNORECASE)
 count = 0
 
 # Open the CSV file for writing
@@ -95,11 +113,11 @@ with open(output_csv, 'w', newline='', encoding='utf-8') as csv_file:
     writer = csv.writer(csv_file)
     # Write the header row
     writer.writerow([
-        'Docket Number', 'Plaintiff', 'Defendant', 'Docket Links', 'Petition', 'Document2', 'Rent', 
+        'Docket Number', 'Plaintiff', 'Defendant', 'Docket Links', 'Petition', 'Document2', 'Filed', 'Closed','Rent', 
         'Answer', 'Transfer', 'JUA', 'ExecutionFiled', 'ExecutionReturns', 'JEs', 'VoluntaryDismissal', 
         'CourtDismissal', 'Dismissed', 'MTV', 'Trial', 'PersonalService', 
         'ConstructiveService', 'OccupantService', 'Served', 'DefNoAppear', 'DefAppear', 
-        'Unserved', 'Atty1', 'Atty2'
+        'Unserved', 'Atty1', 'Atty2', 'Atty3'
     ])
     # Iterate over all files in the directory
     for filename in os.listdir(directory):
@@ -108,7 +126,7 @@ with open(output_csv, 'w', newline='', encoding='utf-8') as csv_file:
                 content = file.read()
                 
                 #call FED Processor
-                plaintiff, defendant, petition, cares, money, atty1, atty2, atty3 = FED_processor(content)
+                plaintiff, defendant, petition, cares, filed, closed, money, atty1, atty2, atty3 = FED_processor(content)
 
                 #boolean searches
                 has_1 = pattern1.search(content) is not None
@@ -128,12 +146,14 @@ with open(output_csv, 'w', newline='', encoding='utf-8') as csv_file:
                 has_15 = pattern15.search(content) is not None
                 has_16 = pattern14.search(content) is not None
                 has_17 = pattern15.search(content) is not None   
-                
+                has_18 = pattern18.search(content) is not None  
                 # Extract case number from the filename
                 case_number = filename.split('.')[0]
                 docketnum = "SC-23-" + str(case_number)
+                docketlink = "https://www.oscn.net/dockets/GetCaseInformation.aspx?db=tulsa&number=" + docketnum
+                docketlink = "=HYPERLINK(\"" + docketlink + "\", \"Docket\")"
                 print(docketnum)
-                writer.writerow([docketnum, plaintiff, defendant, petition, cares, money, has_1, has_2, has_3, has_4, has_5, has_6, has_7, has_8, has_9, has_10, has_11, has_12, has_13, has_14, has_15, has_16, has_17, atty1, atty2, atty3])  
+                writer.writerow([docketnum, plaintiff, defendant, docketlink, petition, cares, filed, closed, money, has_1, has_2, has_3, has_4, has_5, has_6, has_7, has_8, has_9, has_10, has_11, has_12, has_13, has_14, has_18, has_15, has_16, has_17, atty1, atty2, atty3])  
                 count = count + 1
                 print(count)
     print(f"Data exported to {output_csv}")
