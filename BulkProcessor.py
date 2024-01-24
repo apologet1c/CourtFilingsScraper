@@ -1,201 +1,139 @@
-#index list of files
 import os
 import re
-import pandas as pd
+import csv
 
 current_directory = os.getcwd()
-SC_directory = current_directory + "\\Anthony"
-os.chdir(SC_directory)
+directory = current_directory + "\\Small Claims\SC-23"
+os.chdir(directory)
 
-filelist = os.listdir()
+# File path for the output CSV
+output_csv = 'cases.csv'
 
-docketnums = []
-plaintiffs = []
-defendants = []
-url1 = []
-petitions = []
-cares = []
-atty1 = []
-atty2 = []
-answers = []
-transfers = []
-allmoney = []
-advisements = []
-executionforms = []
-executionreturns = []
-journalentries = []
-voluntarydismissals = []
-courtdismissals = []
-alldismissed = []
-unserved = []
-personal = []
-constructive = []
-default = []
-occservice = []
-appear = []
+def FED_processor(html):
+    try:
+        plaintiff = re.findall("(?<=td valign=\"center\" width=\"50%\">)(.*)(?=,)", html)
+        defendant = re.findall("v.<br />[\r\n]+([^\r\n]+)(.*)(?=,)", html)
 
-for x in filelist:
-    with open(x,'r', encoding='utf-8', errors = 'ignore') as src:
-        html = src.read()
-        match = re.search("FORCIBLE ENTRY", html)
-        testfed = bool(match)
+        plaintiff = plaintiff[0] if plaintiff else '.'
+        defendant = defendant[0] if defendant else '.'
 
-    if testfed is True:
-        url1.append(x)
-        print(x)
+        money = re.findall("(?<=AMOUNT IN DEBT OF )(.*)(?= \+)", html)
+        if not money:
+            money = re.findall("(?<=AMOUNT IN DEBT OF)(.*)(?= POSS)", html)
+        money = money[0] if money else '.'
+
+        # Clean the money string
+        money = re.sub(r'[^\d.]+', '', money)
+        money = re.sub(r'^\.*', '', money)
+
+        barcodelinks = re.findall("(&bc=\d+&fmt=tif)", html)
+        barcodelinks = [e.replace("amp;", "") for e in barcodelinks]
+        barcodelinks = ["https://www.oscn.net/dockets/GetDocument.aspx?ct=tulsa" + e for e in barcodelinks]
+
+        atty = re.findall("(?<=\<td valign=\"top\" width=\"50%\"\>)(.*)(?=,&nbsp;)", html)
         
-        match = re.search("Defendant appeared", html, re.IGNORECASE)
-        appear.append(bool(match))
-        match = re.search("TRANSFERRED", html, re.IGNORECASE)
-        transfers.append(bool(match))
-        match = re.search("UNDER ADVISEMENT", html, re.IGNORECASE)
-        advisements.append(bool(match))
-        match = re.search("EXECUTION INSTRUCTION FORM", html, re.IGNORECASE)
-        executionforms.append(bool(match))
-        match = re.search("EXECUTION RETURNED", html, re.IGNORECASE)
-        executionreturns.append(bool(match))
-        match = re.search("JOURNAL ENTRY OF JUDGMENT", html, re.IGNORECASE)
-        journalentries.append(bool(match))
-        match = re.search("ANSWER", html, re.IGNORECASE)
-        answers.append(bool(match))
-        match = re.search("VOLUNTARY DISMISSAL", html, re.IGNORECASE)
-        voluntarydismissals.append(bool(match))
-        match = re.search("Dismissed by Court", html, re.IGNORECASE)
-        courtdismissals.append(bool(match))
-        match = re.search("DISMISSED", html, re.IGNORECASE)
-        alldismissed.append(bool(match))
-        match = re.search("unserved", html, re.IGNORECASE)
-        unserved.append(bool(match)
-        match = re.search("PERS SERV", html, re.IGNORECASE)
-        personal.append(bool(match))        
-        match = re.search("SERVED - POST", html, re.IGNORECASE)
-        constructive.append(bool(match))
-        match = re.search("by serving", html, re.IGNORECASE)
-        occservice.append(bool(match))
-        match = re.search("DEFENDANT APPEARED NOT", html, re.IGNORECASE)
-        default.append(bool(match)) 
+        # what if we don't find any documents?
+        if len(barcodelinks) == 0:
+            print("No Petition Uploaded")
+            petition = "NONE"
+            cares = "NONE"
 
-    else:
-        print("dropped non-FED case")
-        continue
+        # what if we find one document?
+        if len(barcodelinks) == 1:
+            petition = barcodelinks[0]
+            cares = "NONE"
 
-        # now we get the docket number and add to a list
-    docketnum = re.findall("..-20\d+-\d+", html)
+        # what if we find 2+ documents?
+        if len(barcodelinks) >= 2:
+            petition = barcodelinks[0]
+            cares = barcodelinks[1]
+        
+        #if no attorneys   
+        try:
+            atty1 = atty[0]
+        except:
+            atty1 = ""
 
-    if docketnum == []:
-        docketnum = ['captcha']
+        # tries to append a second name
+        try:
+            atty2 = atty[1]
+        except:
+            atty2 = ""
+        try:
+            atty3 = atty[2]
+        except:
+            atty3 = ""
 
-    docketnums.append(docketnum[0])
-    print(docketnum[0])
+        return plaintiff, defendant, petition, cares, money, atty1, atty2, atty3
+    
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None, None, None, None, None, None, None, None
 
-    # split out plaintiff and defendant
-    plaintiff = re.findall("(?<=td valign=\"center\" width=\"50%\">)(.*)(?=,)", html)
-    defendant = re.findall("v.<br />[\r\n]+([^\r\n]+)(.*)(?=,)",
-                           html)  # looks for the v. and then looks on the next line
+# Regex pattern to identify characteristics
+pattern1 = re.compile(r'ANSWER', re.IGNORECASE)
+pattern2 = re.compile(r'TRANSFERRED', re.IGNORECASE)
+pattern3 = re.compile(r'Defendant appeared', re.IGNORECASE)
+pattern4 = re.compile(r'EXECUTION INSTRUCTION FORM', re.IGNORECASE)
+pattern5 = re.compile(r'EXECUTION RETURNED', re.IGNORECASE)
+pattern6 = re.compile(r'JOURNAL ENTRY OF JUDGMENT', re.IGNORECASE)
+pattern7 = re.compile(r'VOLUNTARY DISMISSAL', re.IGNORECASE)
+pattern8 = re.compile(r'Dismissed by Court', re.IGNORECASE)
+pattern9 = re.compile(r'DISMISSED', re.IGNORECASE)
+pattern10 = re.compile(r'motion to vacate', re.IGNORECASE)
+pattern11 = re.compile(r'jury trial', re.IGNORECASE)
+pattern12 = re.compile(r'PERS SERV', re.IGNORECASE)
+pattern13 = re.compile(r'SERVED - POST', re.IGNORECASE)
+pattern14 = re.compile(r'by serving', re.IGNORECASE)
+pattern15 = re.compile(r'DEFENDANT APPEARED NOT', re.IGNORECASE)
+pattern16 = re.compile(r'Defendant appeared', re.IGNORECASE)
+pattern17 = re.compile(r'unserved', re.IGNORECASE)
+count = 0
 
-    if plaintiff == []:
-        plaintiff = ['.']
-    if defendant == []:
-        defendant = ['.']
+# Open the CSV file for writing
+with open(output_csv, 'w', newline='', encoding='utf-8') as csv_file:
+    writer = csv.writer(csv_file)
+    # Write the header row
+    writer.writerow([
+        'Docket Number', 'Plaintiff', 'Defendant', 'Docket Links', 'Petition', 'Document2', 'Rent', 
+        'Answer', 'Transfer', 'JUA', 'ExecutionFiled', 'ExecutionReturns', 'JEs', 'VoluntaryDismissal', 
+        'CourtDismissal', 'Dismissed', 'MTV', 'Trial', 'PersonalService', 
+        'ConstructiveService', 'OccupantService', 'Served', 'DefNoAppear', 'DefAppear', 
+        'Unserved', 'Atty1', 'Atty2'
+    ])
+    # Iterate over all files in the directory
+    for filename in os.listdir(directory):
+        if filename.endswith('.html'):
+            with open(os.path.join(directory, filename), 'r', encoding='utf-8') as file:
+                content = file.read()
+                
+                #call FED Processor
+                plaintiff, defendant, petition, cares, money, atty1, atty2, atty3 = FED_processor(content)
 
-    plaintiffs.append(plaintiff[0])
-    defendants.append(defendant[0])
-
-    # now we get the amount sued for
-    money = re.findall("(?<=AMOUNT IN DEBT OF )(.*)(?= \+)", html)
-    if money == []:
-        money = re.findall("(?<=AMOUNT IN DEBT OF)(.*)(?= POSS)",
-                           html)  # captures the weird <..$..> that some clerks use
-    if money == []:
-        money = ['.']  # if nothing is found at all
-
-    allmoney.append(money[0])
-
-    # get barcodes that link to the specific files.
-    barcodelinks = re.findall("(&bc=\d+&fmt=tif)", html)
-
-    # remove amp; from barcodelinks
-    barcodelinks = [e.replace("amp;", "") for e in barcodelinks]
-
-    # append the barcode to the end of every link
-    barcodelinks = ["https://www.oscn.net/dockets/GetDocument.aspx?ct=tulsa" + e for e in barcodelinks]
-
-    # what if we don't find any documents?
-    if len(barcodelinks) == 0:
-        print("zero")
-        petitions.append("NONE")
-        cares.append("NONE")
-
-    # what if we find one document?
-    if len(barcodelinks) == 1:
-        petitions.append(barcodelinks[0])
-        cares.append("NONE")
-
-    # what if we find 2+ documents?
-    if len(barcodelinks) >= 2:
-        petitions.append(barcodelinks[0])
-        cares.append(barcodelinks[1])
-
-    # now we get the attorneys who have registered appearances and drop the names into lists
-    atty = []
-    atty = re.findall("(?<=\<td valign=\"top\" width=\"50%\"\>)(.*)(?=,&nbsp;)", html)
-
-    # (?<=<td valign=\"top\" width=\"50%\">) #(?!Bar #\d+)
-    # tries to append first name
-    try:
-        atty1.append(atty[0])
-    except:
-        atty = [" ", " "]
-        atty1.append(atty[0])
-
-    # tries to append a second name
-    try:
-        atty2.append(atty[1])
-    except:
-        atty = [" ", " "]
-        atty2.append(atty[1])
-
-#reformats the urls into excel hyperlinks
-excellinks = ["=HYPERLINK(\"" + e + "\", \"Summary\")" for e in url1]
-excelpets = ["=HYPERLINK(\"" + e + "\", \"Petition\")" for e in petitions]
-excelcares = ["=HYPERLINK(\"" + e + "\", \"NTQ\")" for e in cares]
-
-print("Done. Found the following number of FED cases:")
-print(len(docketnums))
-print(len(url1))
-print(len(petitions))
-print(len(cares))
-
-#PART 3: EXPORT TO EXCEL
-#send to dataframes so pandas can export to csv
-df = pd.DataFrame()
-
-#set up columns and writes from variables
-df["Docket Number"] = docketnums
-df["Plaintiff"] = plaintiffs
-df["Defendant"] = defendants
-df["Docket Links"] = excellinks
-df["Petition"] = excelpets
-df["Document2"] = excelcares
-df["Rent"] = allmoney
-df["Atty1"] = atty1
-df["Atty2"] = atty2
-df["Answer"] = answers
-df["Transfer"] = transfers
-df["JUA"] = advisements
-df["ExecutionForms"] = executionforms
-df["ExecutionReturns"] = executionreturns
-df["JEs"] = journalentries
-df["VoluntaryDismissal"] = voluntarydismissals
-df["CourtDismissal"] = courtdismissals
-df["Dismissed"] = alldismissed
-df["PersonalService"] = personal
-df["ConstructiveService"] = constructive
-df["OccupantService"] = occservice
-df["Unserved"] = unserved
-df["DefNoAppear"] = default
-df["DefAppear"] = appear                        
-
-df.to_csv('evictions.csv', index=False) #look in the TIFs folder
-print("Done exporting to Excel. Output saved as evictions.csv in the folder where this .exe is located.")
-input("Press enter to close this window.")
+                #boolean searches
+                has_1 = pattern1.search(content) is not None
+                has_2 = pattern2.search(content) is not None
+                has_3 = pattern3.search(content) is not None
+                has_4 = pattern4.search(content) is not None
+                has_5 = pattern5.search(content) is not None
+                has_6 = pattern6.search(content) is not None
+                has_7 = pattern7.search(content) is not None
+                has_8 = pattern8.search(content) is not None
+                has_9 = pattern9.search(content) is not None
+                has_10 = pattern10.search(content) is not None
+                has_11 = pattern11.search(content) is not None
+                has_12 = pattern12.search(content) is not None
+                has_13 = pattern13.search(content) is not None
+                has_14 = pattern14.search(content) is not None
+                has_15 = pattern15.search(content) is not None
+                has_16 = pattern14.search(content) is not None
+                has_17 = pattern15.search(content) is not None   
+                
+                # Extract case number from the filename
+                case_number = filename.split('.')[0]
+                docketnum = "SC-23-" + str(case_number)
+                print(docketnum)
+                writer.writerow([docketnum, plaintiff, defendant, petition, cares, money, has_1, has_2, has_3, has_4, has_5, has_6, has_7, has_8, has_9, has_10, has_11, has_12, has_13, has_14, has_15, has_16, has_17, atty1, atty2, atty3])  
+                count = count + 1
+                print(count)
+    print(f"Data exported to {output_csv}")
