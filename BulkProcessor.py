@@ -144,8 +144,8 @@ with open(output_csv, 'w', newline='', encoding='utf-8') as csv_file:
                 has_13 = pattern13.search(content) is not None
                 has_14 = pattern14.search(content) is not None
                 has_15 = pattern15.search(content) is not None
-                has_16 = pattern14.search(content) is not None
-                has_17 = pattern15.search(content) is not None   
+                has_16 = pattern16.search(content) is not None
+                has_17 = pattern17.search(content) is not None   
                 has_18 = pattern18.search(content) is not None  
                 # Extract case number from the filename
                 case_number = filename.split('.')[0]
