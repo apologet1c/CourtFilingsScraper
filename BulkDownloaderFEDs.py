@@ -47,7 +47,3 @@ with requests.Session() as session:
             file.write(response.content)
 
         count = count + 1
-
-t1 = time.time()
-total = t1-t0
-print(total)
