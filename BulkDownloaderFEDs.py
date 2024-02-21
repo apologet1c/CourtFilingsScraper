@@ -1,7 +1,6 @@
 import requests
 import time
 import os
-import pandas as pd
 
 current_directory = os.getcwd()
 tifs_directory = current_directory + "\\SC-23"
