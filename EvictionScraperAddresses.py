@@ -323,7 +323,7 @@ output_csv = 'evictionswithaddresses.csv'
 with open(output_csv, 'w', newline='', encoding='utf-8') as csv_file:
     writer = csv.writer(csv_file)
     # Write the header row
-    writer.writerow(['Case Number', 'Plaintiff', 'Defendant', 'Docket Links', 'Petition', 'Document2', 'Rent', 'ResidesAt', 'Mailing', 'Atty1', 'Atty2', 'Atty3', 'AllText'])
+    writer.writerow(['Case Number', 'Plaintiff', 'Defendant', 'Docket Links', 'Petition', 'Document2', 'ResidesAt', 'Mailing', 'Rent', 'Atty1', 'Atty2', 'Atty3', 'AllText'])
     for i in range(len(docketnums)):
-         writer.writerow([docketnums[i], plaintiffs[i], defendants[i], excellinks[i], excelpets[i], excelcares[i], allmoney[i], address1list[i], address2list[i], atty1[i], atty2[i], atty3[i], alltext[i]])
+         writer.writerow([docketnums[i], plaintiffs[i], defendants[i], excellinks[i], excelpets[i], excelcares[i], address1list[i], address2list[i], allmoney[i], atty1[i], atty2[i], atty3[i], alltext[i]])
 print(f"Data exported to {output_csv}")
