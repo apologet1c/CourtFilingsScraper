@@ -8,7 +8,7 @@ br.set_handle_robots(False)   # ignore robots.txt
 br.set_handle_refresh(False)  # can sometimes hang without this
 
 # Set a custom User-Agent header
-br.addheaders = [("User-Agent", "6946809d-1344-4e45-9167-f6dfac85305f")]
+#user agent here
 
 #PART 1: SETUP
 def get_docket_content(docket_url):
