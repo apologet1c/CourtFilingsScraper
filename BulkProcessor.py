@@ -5,7 +5,7 @@ import glob
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 current_directory = os.getcwd()
-directory = os.path.join(current_directory, "Small Claims", "SC-23FEDs")
+directory = os.path.join(current_directory, "SC-25Tulsa", "FEDs")
 
 # File path for the output CSV
 output_csv = os.path.join(directory, 'cases.csv')
@@ -142,7 +142,7 @@ def process_file(filepath):
 
     # Build case identifiers
     case_number = filename.split('.')[0]
-    docketnum = "SC-23-" + str(case_number)
+    docketnum = "SC-25-" + str(case_number)
     docketlink = "=HYPERLINK(\"https://www.oscn.net/dockets/GetCaseInformation.aspx?db=tulsa&number=" + docketnum + "\", \"Docket\")"
 
     # Column order matches the original: has_1-14, has_18(Served), has_15, has_16, has_17
