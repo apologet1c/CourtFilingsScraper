@@ -2,7 +2,7 @@ import os
 import re
 import csv
 import glob
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 current_directory = os.getcwd()
 directory = os.path.join(current_directory, "Small Claims", "SC-23FEDs")
@@ -163,9 +163,9 @@ if __name__ == '__main__':
     total = len(html_files)
     print(f"Processing {total} files...")
 
-    # Process files in parallel across all available CPU cores
+    # Process files concurrently using threads (avoids Windows process-spawn crashes)
     rows = []
-    with ProcessPoolExecutor() as executor:
+    with ThreadPoolExecutor() as executor:
         futures = {executor.submit(process_file, f): f for f in html_files}
         for future in as_completed(futures):
             try:
