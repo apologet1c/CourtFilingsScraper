@@ -22,6 +22,8 @@ ENTRY_SPLIT_RE = re.compile(r"<TABLE\s+class=clspg\b", re.I)
 CASE_RE = re.compile(r"casemasterid=(\d+)[^>]*>\s*([A-Z]{1,3}-\d{4}-\d+[A-Z]?)\s*</A>", re.I)
 EVENT_RE = re.compile(r"COLOR=RED>\s*([^<]*)</FONT>", re.I)
 END_MARKER = "<!--end transmission-->"
+# Event text OSCN prints when a case is back on the docket after judgment was taken under advisement.
+JUA_RE = re.compile(r"JUDGMENT\s+UNDER\s+ADVISEMENT|\bJUA\b", re.I)
 
 
 @dataclass
@@ -35,6 +37,7 @@ class Case:
     case_number: str
     casemasterid: str
     event: str
+    is_jua: bool = False   # judgment under advisement: counted separately, not in "cases"
 
     def as_row(self) -> dict:
         return asdict(self)
@@ -67,12 +70,13 @@ def parse_docket(html: str, judge_id: str = "") -> list[Case]:
             if not cm:
                 continue
             ev = EVENT_RE.search(chunk)
+            event = _clean(ev.group(1)) if ev else ""
             cases.append(Case(
                 judge_id=str(judge_id), judge_name=judge_name,
                 docket_date=dt.date().isoformat(), month=dt.strftime("%Y-%m"),
                 weekday=dt.strftime("%A"), session_time=dt.strftime("%H:%M"),
                 case_number=cm.group(2), casemasterid=cm.group(1),
-                event=_clean(ev.group(1)) if ev else "",
+                event=event, is_jua=bool(JUA_RE.search(event)),
             ))
     return cases
 

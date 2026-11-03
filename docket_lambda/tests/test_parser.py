@@ -10,16 +10,16 @@ from report import build_reports, summary  # noqa: E402
 import handler  # noqa: E402
 
 
-def entry(n, case, cid):
+def entry(n, case, cid, event="HEARING - ATTY/PL (HEA)"):
     return f"""
 <TABLE class=clspg WIDTH=100% BORDER=0 CELLSPACING=0 CELLPADDING=0><TR>
  <TD VALIGN=TOP width=5%><B><FONT FACE=ARIAL SIZE=4><B>{n}&nbsp;</B></TD>
  <TD VALIGN=TOP COLSPAN=2><FONT FACE=ARIAL SIZE=3><B>
  <A HREF="GetCaseInformation.asp?submitted=true&db=Tulsa&casemasterid={cid}" target="_blank">{case}</A></B></FONT>
- <BR><FONT FACE=ARIAL SIZE=1 COLOR=RED>HEARING - ATTY/PL (HEA)</FONT><BR></TD></TR></TABLE>"""
+ <BR><FONT FACE=ARIAL SIZE=1 COLOR=RED>{event}</FONT><BR></TD></TR></TABLE>"""
 
 
-def page(d, sessions):
+def page(d, sessions, jua=0):
     html = (f"<B>Docket for Judge Jane Doe - Tulsa County</B></FONT><HR></FONT>"
             f"<FONT FACE=ARIAL SIZE=2>All Events Scheduled on {d:%m/%d/%Y}.</TD>")
     n = 0
@@ -28,6 +28,9 @@ def page(d, sessions):
         for _ in range(k):
             n += 1
             html += entry(n, f"SC-{d.year}-{n}", str(n))
+    for _ in range(jua):
+        n += 1
+        html += entry(n, f"SC-{d.year}-{n}", str(n), "HEARING - JUDGMENT UNDER ADVISEMENT. - ATTY/PL (HEA)")
     return html + "<BR><!--End Transmission--><HR>"
 
 
@@ -54,6 +57,16 @@ class Tests(unittest.TestCase):
         self.assertEqual([(x["session_time"], x["total_cases"]) for x in r["by_time"]],
                          [("09:00", 6), ("13:30", 3)])
         self.assertEqual(summary(r)["total_cases"], 9)
+
+    def test_jua_split_out(self):
+        cs = parse_docket(page(MON, [("9:00 AM", 3)], jua=2), "1058")
+        self.assertEqual([c.is_jua for c in cs], [False] * 3 + [True] * 2)
+        r = build_reports(cs, [(MON.isoformat(), "1058")])
+        self.assertEqual((r["by_date"][0]["cases"], r["by_date"][0]["jua"]), (3, 2))
+        self.assertEqual((r["sessions"][0]["cases"], r["sessions"][0]["jua"]), (3, 2))
+        self.assertEqual((r["by_month"][0]["total_cases"], r["by_month"][0]["total_jua"],
+                          r["by_month"][0]["avg_cases_per_docket"]), (3, 2, 3))
+        self.assertEqual((summary(r)["total_cases"], summary(r)["total_jua"]), (3, 2))
 
     def test_plan_judge_windows(self):
         ev = {"start_date": "2026-06-29", "end_date": "2026-07-03",

@@ -46,6 +46,10 @@ Raw pages are saved to `raw/{db}/judge={id}/{yyyy}/{yyyy-mm-dd}.html`. Reports g
 | `cases.csv` | every case line, for your own pivots |
 | `summary.json` | totals, plus any days whose page couldn't be fetched (`missing_pages`) |
 
+**JUAs are split out.** A line whose event reads "JUDGMENT UNDER ADVISEMENT" (or "JUA") is not
+counted in `cases`. It goes in a separate `jua` / `total_jua` column, and all averages are
+over `cases` only. `cases.csv` keeps every line, with an `is_jua` flag.
+
 Days with 0 cases (holidays) still appear in `by_date.csv`, but they are left out of the averages.
 
 A page is not saved, and the day shows up in `missing_pages`, if:
