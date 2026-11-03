@@ -14,7 +14,9 @@ Event:
   "weekdays_only": true,                # optional; weekends are skipped by default
   "skip_holidays": true,                # optional; skip Oklahoma court holidays (holidays.py)
   "skip_dates": ["2023-12-22"],         # optional; extra closures (weather, Christmas Eve, ...)
-  "include_dates": ["2026-11-11"]       # optional; force a fetch on a date that would be skipped
+  "include_dates": ["2026-11-11"],      # optional; force a fetch on a date that would be skipped
+  "lookback_days": 30                   # optional; also scrape this many days before start_date,
+                                        # used only to tell first-time appearances from repeats
 }
 
 Env: S3_BUCKET, OSCN_KEY, OSCN_KEY_HEADER (header name the key goes in),
@@ -39,7 +41,8 @@ from pathlib import Path
 
 from holidays import holidays_between
 from docket_parser import parse_docket, is_complete, scheduled_date
-from report import build_reports, summary, to_csv
+from excel import build_workbook
+from report import build_reports, classify, summary, to_csv
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
@@ -62,6 +65,9 @@ if BUCKET:
     def save(key: str, body: str, content_type: str = "text/html") -> None:
         _s3.put_object(Bucket=BUCKET, Key=key, Body=body.encode("utf-8"), ContentType=content_type)
 
+    def save_bytes(key: str, body: bytes, content_type: str) -> None:
+        _s3.put_object(Bucket=BUCKET, Key=key, Body=body, ContentType=content_type)
+
     def load(key: str) -> str | None:
         try:
             return _s3.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode("utf-8")
@@ -83,6 +89,11 @@ else:
         p = LOCAL_DIR / key
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
+
+    def save_bytes(key: str, body: bytes, content_type: str = "") -> None:
+        p = LOCAL_DIR / key
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(body)
 
     def load(key: str) -> str | None:
         p = LOCAL_DIR / key
@@ -128,9 +139,15 @@ def fetch(url: str, tries: int = 3) -> str:
 
 # ------------------------------------------------------------------ plan
 
-def skipped_days(event: dict) -> dict[date, str]:
-    """Days in range that won't be fetched (court closed), with the reason."""
+def _range(event: dict) -> tuple[date, date, date]:
+    """(fetch_start, report_start, end): fetch_start includes the lookback window."""
     start, end = date.fromisoformat(event["start_date"]), date.fromisoformat(event["end_date"])
+    return start - timedelta(days=int(event.get("lookback_days", 30))), start, end
+
+
+def skipped_days(event: dict) -> dict[date, str]:
+    """Days in the fetch range that won't be fetched (court closed), with the reason."""
+    start, _, end = _range(event)
     skip: dict[date, str] = {}
     if event.get("weekdays_only", True):
         d = start
@@ -148,11 +165,12 @@ def skipped_days(event: dict) -> dict[date, str]:
 
 
 def plan(event: dict) -> list[tuple[str, date]]:
-    """Every (judge_id, day) to fetch, in date order."""
-    start, end = date.fromisoformat(event["start_date"]), date.fromisoformat(event["end_date"])
+    """Every (judge_id, day) to fetch, in date order, lookback days included.
+    A judge window with no "from" also covers the lookback days."""
+    start, _, end = _range(event)
     if "judges" in event:
         windows = [(str(j["id"]),
-                    date.fromisoformat(j.get("from") or event["start_date"]),
+                    date.fromisoformat(j["from"]) if j.get("from") else start,
                     date.fromisoformat(j.get("to") or event["end_date"])) for j in event["judges"]]
     elif "judge" in event:
         windows = [(str(event["judge"]), start, end)]
@@ -199,22 +217,29 @@ def scrape(pairs, event, context) -> int | None:
 
 
 def make_report(pairs, event) -> dict:
-    cases, scraped, missing = [], [], []
+    _, report_start, _ = _range(event)
+    lines, scraped, missing = [], [], []
     for judge, day in pairs:
         html = load(page_key(judge, day))
         if html is None:
             missing.append(f"{day.isoformat()} judge {judge}")
             continue
-        scraped.append((day.isoformat(), judge))
-        cases += parse_docket(html, judge)
+        if day >= report_start:
+            scraped.append((day.isoformat(), judge))
+        lines += parse_docket(html, judge)
 
-    reports = build_reports(cases, scraped)
+    # Classify over everything (lookback included), then keep only the report range.
+    rows = [r for r in classify(lines) if r["docket_date"] >= report_start.isoformat()]
+    reports = build_reports(rows, scraped)
     name = event.get("report_name") or f"{event['start_date']}_{event['end_date']}"
     base = f"reports/{DB}/{name}"
-    for table, rows in reports.items():
-        save(f"{base}/{table}.csv", to_csv(rows), "text/csv")
+    for table, tbl in reports.items():
+        save(f"{base}/{table}.csv", to_csv(tbl), "text/csv")
+    save_bytes(f"{base}/report.xlsx", build_workbook(reports, event),
+               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     holidays = {d.isoformat(): why for d, why in sorted(skipped_days(event).items()) if why != "weekend"}
     result = {**summary(reports), "requests_planned": len(pairs),
+              "lookback_from": _range(event)[0].isoformat(),
               "skipped_holidays": holidays, "missing_pages": missing,
               "output": f"s3://{BUCKET}/{base}/" if BUCKET else str(LOCAL_DIR / base),
               "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}

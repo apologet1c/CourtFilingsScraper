@@ -22,8 +22,17 @@ ENTRY_SPLIT_RE = re.compile(r"<TABLE\s+class=clspg\b", re.I)
 CASE_RE = re.compile(r"casemasterid=(\d+)[^>]*>\s*([A-Z]{1,3}-\d{4}-\d+[A-Z]?)\s*</A>", re.I)
 EVENT_RE = re.compile(r"COLOR=RED>\s*([^<]*)</FONT>", re.I)
 END_MARKER = "<!--end transmission-->"
-# Event text OSCN prints when a case is back on the docket after judgment was taken under advisement.
+# Event text that marks a line as something other than a fresh hearing. JUA wins if both match.
 JUA_RE = re.compile(r"JUDGMENT\s+UNDER\s+ADVISEMENT|\bJUA\b", re.I)
+CONTINUED_RE = re.compile(r"\bCONTINUED\b", re.I)
+
+
+def event_type(event: str) -> str:
+    if JUA_RE.search(event):
+        return "jua"
+    if CONTINUED_RE.search(event):
+        return "continued"
+    return "hearing"
 
 
 @dataclass
@@ -37,7 +46,8 @@ class Case:
     case_number: str
     casemasterid: str
     event: str
-    is_jua: bool = False   # judgment under advisement: counted separately, not in "cases"
+    event_type: str = "hearing"   # hearing | jua | continued
+    seq: int = 0                  # line number on the docket (orders same-time lines)
 
     def as_row(self) -> dict:
         return asdict(self)
@@ -69,6 +79,7 @@ def parse_docket(html: str, judge_id: str = "") -> list[Case]:
             cm = CASE_RE.search(chunk)
             if not cm:
                 continue
+            seq_m = re.search(r"SIZE=4><B>(\d+)", chunk, re.I)
             ev = EVENT_RE.search(chunk)
             event = _clean(ev.group(1)) if ev else ""
             cases.append(Case(
@@ -76,7 +87,8 @@ def parse_docket(html: str, judge_id: str = "") -> list[Case]:
                 docket_date=dt.date().isoformat(), month=dt.strftime("%Y-%m"),
                 weekday=dt.strftime("%A"), session_time=dt.strftime("%H:%M"),
                 case_number=cm.group(2), casemasterid=cm.group(1),
-                event=event, is_jua=bool(JUA_RE.search(event)),
+                event=event, event_type=event_type(event),
+                seq=int(seq_m.group(1)) if seq_m else 0,
             ))
     return cases
 

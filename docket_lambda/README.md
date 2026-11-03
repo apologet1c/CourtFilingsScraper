@@ -48,28 +48,58 @@ OSCN_KEY=... OSCN_KEY_HEADER=... python handler.py event.json
 | `REQUEST_DELAY_SECONDS` | default `1.0` |
 
 ## Output
-Raw pages are saved to `raw/{db}/judge={id}/{yyyy}/{yyyy-mm-dd}.html`. Reports go to `reports/{db}/{report_name}/`:
+Raw pages are saved to `raw/{db}/judge={id}/{yyyy}/{yyyy-mm-dd}.html`. Reports go to `reports/{db}/{report_name}/`.
 
+### What gets counted
+Every docket line goes in exactly one bucket:
+
+```
+listed        every line on the docket
+├─ jua          event says JUDGMENT UNDER ADVISEMENT
+├─ continued    event says CONTINUED (e.g. "CONTINUED BY AGREEMENT")
+└─ cases        everything else: hearings actually set that day
+   ├─ first_time  the case's first appearance on any docket scraped
+   └─ repeat      the case was on an earlier docket
+```
+
+To count **only first-time appearances**, use `first_time`.
+
+"Earlier" includes the **lookback** window: `lookback_days` (default 30) scrapes the days before
+`start_date`. Those days are used only to tell first-time cases from repeats and are never counted in the report.
+With the default, a 1-year run costs about 21 extra requests.
+
+### `report.xlsx`
+| sheet | |
+|---|---|
+| **Heatmaps** | Dropdowns pick the metric (`first_time`, `cases`, `jua`, ...) and average vs. total. There are three color-scaled grids: time slot × weekday (per session), month × weekday (per docket day), and a calendar (month × day). |
+| **Summary** | Total, average and max per docket day for each metric, plus the run settings. |
+| **By Date** / **Sessions** | One row per judge-day / judge-day-time slot. The counts are `COUNTIFS` formulas over Cases. |
+| **Cases** | Every docket line: bucket, appearance number, event text. |
+
+Every number in the workbook is a formula over **Cases**, so if you delete or relabel a row there,
+the heatmaps and summary recalculate.
+
+### CSVs (same numbers, for scripts)
 | csv | contents |
 |---|---|
-| `by_date.csv` | **cases on each day** (includes 0-case days) plus that day's time slots |
-| `sessions.csv` | cases at each date + time slot |
-| `by_month`, `by_weekday` | dockets, total cases, avg/median/min/max cases per docket day |
+| `by_date.csv` | each metric on each day (includes 0-case days) plus that day's time slots |
+| `sessions.csv` | each metric at each date + time slot |
+| `by_month`, `by_weekday` | totals per metric; avg/median/min/max of `cases` and `first_time` per docket day |
 | `by_time`, `by_weekday_time`, `by_month_time` | the same stats, per time slot |
-| `cases.csv` | every case line, for your own pivots |
-| `summary.json` | totals, plus any days whose page couldn't be fetched (`missing_pages`) |
+| `cases.csv` | every line with `bucket` and `appearance_no` |
+| `summary.json` | totals, `skipped_holidays`, `missing_pages` |
 
-**JUAs are split out.** A line whose event reads "JUDGMENT UNDER ADVISEMENT" (or "JUA") is not
-counted in `cases`. It goes in a separate `jua` / `total_jua` column, and all averages are
-over `cases` only. `cases.csv` keeps every line, with an `is_jua` flag.
-
-Days with 0 cases (holidays) still appear in `by_date.csv`, but they are left out of the averages.
+Days with nothing on the docket still appear in `by_date`, but they are left out of the averages.
 
 A page is not saved, and the day shows up in `missing_pages`, if:
 - it's missing OSCN's `<!--End Transmission-->` footer, or
 - it's dated differently than requested.
 
 A CAPTCHA response stops the run.
+
+## Deploy
+`openpyxl` (in `requirements.txt`) is the one dependency. `sam build && sam deploy --guided` bundles it.
+To run locally, `pip install openpyxl` first.
 
 ## Test
 ```bash
