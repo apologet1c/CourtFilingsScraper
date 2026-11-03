@@ -1,135 +1,90 @@
-"""Aggregate parsed docket entries into the eviction-docket reports.
+"""Turn parsed cases into the report tables (counts of cases only).
 
-"People on a docket" is reported two ways, because the question is ambiguous:
-  * cases       - docket lines (one per case called)
-  * defendants  - named defendants on those cases (a case with 2 tenants counts 2)
-Plaintiffs are carried too in case you need total parties.
-
-A "session" is one judge + date + start time (e.g. Tue 11/3 2:00 PM). A "docket day"
-is one judge + date across all of its sessions.
+A "docket" here is one judge-day. A "session" is one start time within that day
+(e.g. Tue 11/3 at 2:00 PM). Days that were scraped but had no cases appear in
+by_date.csv with 0 and are left out of the averages so holidays don't drag them down.
 """
 from __future__ import annotations
 
 import csv
 import io
-from collections import defaultdict
+from collections import Counter, defaultdict
 from statistics import mean, median
 
-from docket_parser import DocketEntry
+from docket_parser import Case
 
-WEEKDAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-ENTRY_FIELDS = ["db", "judge_id", "judge_name", "docket_date", "month", "weekday", "session_time",
-                "session_dt", "seq", "case_number", "case_type", "casemasterid", "assigned_to",
-                "event_code", "event", "n_plaintiffs", "n_defendants", "plaintiffs", "defendants",
-                "is_fed"]
+WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
-def _session_rows(entries: list[DocketEntry]) -> list[dict]:
-    groups: dict[tuple, list[DocketEntry]] = defaultdict(list)
-    for e in entries:
-        groups[(e.judge_id, e.docket_date, e.session_time)].append(e)
-    rows = []
-    for (jid, d, t), es in sorted(groups.items(), key=lambda kv: (kv[0][1], kv[0][2], kv[0][0])):
-        f = es[0]
-        rows.append({
-            "docket_date": d, "month": f.month, "weekday": f.weekday, "session_time": t,
-            "judge_id": jid, "judge_name": f.judge_name,
-            "cases": len(es),
-            "defendants": sum(e.n_defendants for e in es),
-            "plaintiffs": sum(len(e.plaintiffs) for e in es),
-        })
-    return rows
+def _rollup(counts: dict[tuple, int], key_names: list[str], key_fn, unit: str, sort=None) -> list[dict]:
+    """counts: {(date, ...): n_cases} -> grouped by key_fn(k) with totals and per-unit stats."""
+    groups: dict[tuple, list[int]] = defaultdict(list)
+    for k, n in counts.items():
+        if n:
+            groups[key_fn(k)].append(n)
+    rows = [{**dict(zip(key_names, g)), unit: len(ns), "total_cases": sum(ns),
+             f"avg_cases_per_{unit[:-1]}": round(mean(ns), 2),
+             f"median_cases_per_{unit[:-1]}": median(ns),
+             f"min_cases_per_{unit[:-1]}": min(ns),
+             f"max_cases_per_{unit[:-1]}": max(ns)}
+            for g, ns in groups.items()]
+    return sorted(rows, key=sort or (lambda r: tuple(r[k] for k in key_names)))
 
 
-def _docket_day_rows(sessions: list[dict]) -> list[dict]:
-    groups: dict[tuple, list[dict]] = defaultdict(list)
-    for s in sessions:
-        groups[(s["judge_id"], s["docket_date"])].append(s)
-    rows = []
-    for (jid, d), ss in sorted(groups.items(), key=lambda kv: (kv[0][1], kv[0][0])):
-        f = ss[0]
-        rows.append({
-            "docket_date": d, "month": f["month"], "weekday": f["weekday"],
-            "judge_id": jid, "judge_name": f["judge_name"],
-            "sessions": len(ss), "session_times": " ".join(s["session_time"] for s in ss),
-            "cases": sum(s["cases"] for s in ss),
-            "defendants": sum(s["defendants"] for s in ss),
-            "plaintiffs": sum(s["plaintiffs"] for s in ss),
-        })
-    return rows
+def build_reports(cases: list[Case], scraped_days: list[tuple[str, str]]) -> dict[str, list[dict]]:
+    """scraped_days: [(iso_date, judge_id)] for every page fetched, so empty days show as 0."""
+    from datetime import date
+    wd = lambda d: date.fromisoformat(d).strftime("%A")
 
+    per_day = Counter({(d, j): 0 for d, j in scraped_days})
+    per_session = Counter()
+    names = {}
+    for c in cases:
+        per_day[(c.docket_date, c.judge_id)] += 1
+        per_session[(c.docket_date, c.session_time, c.judge_id)] += 1
+        names[c.judge_id] = c.judge_name
 
-def _rollup(rows: list[dict], keys: list[str], unit: str, order=None) -> list[dict]:
-    """Group session/day rows by `keys`; report totals plus per-docket avg/median/max."""
-    groups: dict[tuple, list[dict]] = defaultdict(list)
-    for r in rows:
-        groups[tuple(r[k] for k in keys)].append(r)
-    out = []
-    for k, rs in groups.items():
-        cases = [r["cases"] for r in rs]
-        defs = [r["defendants"] for r in rs]
-        row = dict(zip(keys, k))
-        row.update({
-            unit: len(rs),
-            "total_cases": sum(cases),
-            "total_defendants": sum(defs),
-            f"avg_cases_per_{unit[:-1]}": round(mean(cases), 2),
-            f"median_cases_per_{unit[:-1]}": median(cases),
-            f"max_cases_per_{unit[:-1]}": max(cases),
-            f"avg_defendants_per_{unit[:-1]}": round(mean(defs), 2),
-            f"median_defendants_per_{unit[:-1]}": median(defs),
-            f"max_defendants_per_{unit[:-1]}": max(defs),
-        })
-        out.append(row)
-    sort_key = order or (lambda r: tuple(r[k] for k in keys))
-    return sorted(out, key=sort_key)
+    by_date = [{"docket_date": d, "weekday": wd(d), "month": d[:7], "judge_id": j,
+                "judge_name": names.get(j, ""), "cases": n,
+                "session_times": " ".join(sorted(t for (sd, t, sj) in per_session if sd == d and sj == j))}
+               for (d, j), n in sorted(per_day.items())]
+    sessions = [{"docket_date": d, "weekday": wd(d), "month": d[:7], "session_time": t,
+                 "judge_id": j, "cases": n}
+                for (d, t, j), n in sorted(per_session.items())]
 
-
-def build_reports(entries: list[DocketEntry], fed_flags: dict[str, bool] | None = None) -> dict[str, list[dict]]:
-    entry_rows = []
-    for e in entries:
-        r = e.as_row()
-        r["is_fed"] = "" if fed_flags is None else fed_flags.get(e.casemasterid, "")
-        entry_rows.append(r)
-
-    sessions = _session_rows(entries)
-    days = _docket_day_rows(sessions)
-    wd = lambda r: (WEEKDAY_ORDER.index(r["weekday"]),)
-    wdt = lambda r: (WEEKDAY_ORDER.index(r["weekday"]), r["session_time"])
+    by_wd = lambda r: WEEKDAYS.index(r["weekday"])
     return {
-        "entries": entry_rows,
-        "sessions": sessions,                       # answer: people per docket (per time slot)
-        "docket_days": days,                        # answer: people per docket (per judge-day)
-        "by_date": _rollup(sessions, ["docket_date", "weekday"], "sessions"),
-        "by_month": _rollup(sessions, ["month"], "sessions"),
-        "by_weekday": _rollup(sessions, ["weekday"], "sessions", order=wd),
-        "by_time": _rollup(sessions, ["session_time"], "sessions"),
-        "by_weekday_time": _rollup(sessions, ["weekday", "session_time"], "sessions", order=wdt),
-        "by_month_days": _rollup(days, ["month"], "docket_days"),
-        "by_weekday_days": _rollup(days, ["weekday"], "docket_days", order=wd),
+        "by_date": by_date,                                     # cases on each day
+        "sessions": sessions,                                   # cases at each date + time
+        "by_month": _rollup(per_day, ["month"], lambda k: (k[0][:7],), "dockets"),
+        "by_weekday": _rollup(per_day, ["weekday"], lambda k: (wd(k[0]),), "dockets", by_wd),
+        "by_time": _rollup(per_session, ["session_time"], lambda k: (k[1],), "sessions"),
+        "by_weekday_time": _rollup(per_session, ["weekday", "session_time"],
+                                   lambda k: (wd(k[0]), k[1]), "sessions",
+                                   lambda r: (by_wd(r), r["session_time"])),
+        "by_month_time": _rollup(per_session, ["month", "session_time"],
+                                 lambda k: (k[0][:7], k[1]), "sessions"),
+        "cases": [c.as_row() for c in cases],
     }
-
-
-def to_csv(rows: list[dict], fields: list[str] | None = None) -> str:
-    buf = io.StringIO()
-    if not rows:
-        return ""
-    w = csv.DictWriter(buf, fieldnames=fields or list(rows[0].keys()), extrasaction="ignore")
-    w.writeheader()
-    w.writerows(rows)
-    return buf.getvalue()
 
 
 def summary(reports: dict[str, list[dict]]) -> dict:
-    s, d = reports["sessions"], reports["docket_days"]
+    days = [r for r in reports["by_date"] if r["cases"]]
+    n = [r["cases"] for r in days]
     return {
-        "sessions": len(s),
-        "docket_days": len(d),
-        "total_cases": sum(r["cases"] for r in s),
-        "total_defendants": sum(r["defendants"] for r in s),
-        "avg_cases_per_session": round(mean([r["cases"] for r in s]), 2) if s else 0,
-        "avg_defendants_per_session": round(mean([r["defendants"] for r in s]), 2) if s else 0,
-        "first_date": s[0]["docket_date"] if s else None,
-        "last_date": s[-1]["docket_date"] if s else None,
+        "days_scraped": len(reports["by_date"]),
+        "days_with_cases": len(days),
+        "total_cases": sum(n),
+        "avg_cases_per_docket_day": round(mean(n), 2) if n else 0,
+        "busiest_day": max(days, key=lambda r: r["cases"])["docket_date"] if days else None,
     }
+
+
+def to_csv(rows: list[dict]) -> str:
+    if not rows:
+        return ""
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue()

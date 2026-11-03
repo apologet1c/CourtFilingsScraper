@@ -1,10 +1,11 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: OSCN eviction docket scraper + report generator
+Description: One-shot OSCN eviction docket scraper + case-count report
 
 Parameters:
   BucketName: {Type: String}
-  JudgeIds: {Type: String, Description: "Comma-separated OSCN Judge= ids for eviction dockets", Default: "1058"}
+  OscnKey: {Type: String, NoEcho: true}
+  OscnKeyHeader: {Type: String, Description: "Name of the HTTP header the key goes in"}
 
 Resources:
   DocketFunction:
@@ -15,28 +16,17 @@ Resources:
       Handler: handler.lambda_handler
       Runtime: python3.12
       Timeout: 900
-      MemorySize: 512
-      ReservedConcurrentExecutions: 1   # one scraper at a time; keeps request rate predictable
+      MemorySize: 256
       Environment:
         Variables:
           S3_BUCKET: !Ref BucketName
-          JUDGE_IDS: !Ref JudgeIds
+          OSCN_KEY: !Ref OscnKey
+          OSCN_KEY_HEADER: !Ref OscnKeyHeader
           OSCN_DB: Tulsa
-          CASE_TYPES: SC
           REQUEST_DELAY_SECONDS: "1.0"
-          # Fill in whichever matches how your key is issued:
-          OSCN_KEY: ""
-          OSCN_KEY_HEADER: ""
-          OSCN_KEY_PARAM: ""
       Policies:
         - S3CrudPolicy: {BucketName: !Ref BucketName}
         - Statement:
             - Effect: Allow
-              Action: lambda:InvokeFunction        # self-continuation for long date ranges
+              Action: lambda:InvokeFunction   # lets a long range continue past 15 min
               Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:oscn-docket-scraper"
-      Events:
-        Nightly:
-          Type: Schedule
-          Properties:
-            Schedule: cron(0 6 * * ? *)           # 06:00 UTC: pull recent days + rebuild YTD report
-            Input: '{"action": "all", "report_name": "ytd"}'

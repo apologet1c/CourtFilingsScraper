@@ -1,61 +1,58 @@
-# OSCN eviction docket Lambda
+# OSCN eviction docket counter
 
-Answers *"how many people were on each eviction docket in 2026?"*: it pulls each judge's daily
-OSCN docket page, keeps the raw HTML in S3, and writes CSV reports by **date, month, weekday,
-and time slot**.
+Give it a date range and the judge id(s). It saves every daily docket page to S3, then
+writes CSVs showing how many cases were on each docket, broken out by date, month,
+weekday and time slot.
 
-Stdlib + boto3 only (both ship with the Lambda Python runtime), so there's nothing to package.
-
-## Files
-| file | role |
-|---|---|
-| `handler.py` | Lambda entry; `scrape` / `classify` / `report` / `all` actions, self-continues past the 15-min limit |
-| `oscn_client.py` | URL builder (matches the `WebJudicialDocketJudgeAll` link), throttled GET, key injection |
-| `docket_parser.py` | Parses a docket page into one row per case line |
-| `report.py` | Aggregations + CSV |
-| `storage.py` | S3 key layout |
-| `template.yaml` | SAM template (Lambda, IAM, nightly schedule) |
-
-## Run it
+## Run
+Invoke the Lambda once per range:
 ```json
-{"action": "all", "judges": ["1058"], "start_date": "2026-01-01", "end_date": "2026-12-31", "report_name": "2026"}
+{"start_date": "2026-01-01", "end_date": "2026-12-31", "judge": "1058", "report_name": "2026"}
 ```
-- `scrape` – downloads `raw/dockets/{db}/judge={id}/YYYY/MM/YYYY-MM-DD.html`. Pages already in S3
-  are skipped (except the last `REFRESH_RECENT_DAYS`, which can still change), so reruns are cheap.
-  Pages missing OSCN's `<!--End Transmission-->` footer, or dated differently than requested,
-  are not saved. A CAPTCHA aborts the run.
-- `report` – parses everything in range from S3 and writes to `reports/dockets/{db}/{report_name}/`.
-- `all` – scrape, then report.
-- `classify` *(optional)* – fetches each case page once into `raw/cases/` so `"fed_only": true`
-  can drop non-eviction small-claims cases (see below).
+When the judge changes partway through, give each judge a date window (`from`/`to` are inclusive; leave either off to mean the range's start or end):
+```json
+{"start_date": "2023-01-01", "end_date": "2023-12-31", "report_name": "2023",
+ "judges": [{"id": "1001", "to": "2023-06-30"}, {"id": "1058", "from": "2023-07-01"}]}
+```
+Optional settings: `"overwrite": true` re-downloads pages, and `"weekdays_only": false` includes weekends.
 
-When time runs low the function re-invokes itself with an `offset` cursor (`MAX_CHAIN_DEPTH`
-caps the chain). At ~1 s/request, one judge-year (~250 weekdays) is one invocation.
+- Pages already saved are skipped, so if a run dies, invoke the same event again.
+- If a range takes longer than 15 minutes, the function re-invokes itself and finishes the report on the last leg.
+- At 1 request/sec, one year (~250 weekdays) takes about 4–5 minutes.
 
-## Reports
-"People" is reported two ways: **cases** (docket lines) and **defendants** (named on the
-caption — two tenants on one case counts 2). Plaintiffs are carried too.
+To run locally without Lambda or S3, leave `S3_BUCKET` unset. The output goes to `./out/`:
+```bash
+OSCN_KEY=... OSCN_KEY_HEADER=... python handler.py event.json
+```
 
-| csv | grain |
+## Environment variables
+| var | |
 |---|---|
-| `sessions.csv` | **one row per docket**: judge × date × start time |
-| `docket_days.csv` | judge × date (all time slots combined) |
-| `by_date`, `by_month`, `by_weekday`, `by_time`, `by_weekday_time` | roll-ups of sessions: count, totals, avg / median / max per session |
-| `by_month_days`, `by_weekday_days` | same, per judge-day |
-| `entries.csv` | every case line, for ad-hoc pivots |
-| `summary.json` | headline totals |
+| `S3_BUCKET` | where pages and reports go |
+| `OSCN_KEY` | your key |
+| `OSCN_KEY_HEADER` | name of the header the key is sent in |
+| `OSCN_DB` | default `Tulsa` |
+| `REQUEST_DELAY_SECONDS` | default `1.0` |
 
-## Config (env)
-`S3_BUCKET`, `JUDGE_IDS`, `OSCN_DB` (Tulsa), `CASE_TYPES` (SC), `WEEKDAYS_ONLY` (true),
-`REQUEST_DELAY_SECONDS` (1.0), `REFRESH_RECENT_DAYS` (3), `TIME_RESERVE_SECONDS` (60),
-`FED_ONLY` (false), `FED_REGEX`, `OSCN_KEY` + `OSCN_KEY_HEADER` **or** `OSCN_KEY_PARAM`, `OSCN_COOKIE`,
-`USER_AGENT`. Prefer Secrets Manager / encrypted env for `OSCN_KEY`.
+## Output
+Raw pages are saved to `raw/{db}/judge={id}/{yyyy}/{yyyy-mm-dd}.html`. Reports go to `reports/{db}/{report_name}/`:
 
-## Caveats
-- The docket page doesn't label case type beyond the `SC-` prefix, so small-claims money cases
-  heard by the same judge are counted unless you run `classify` + `fed_only`.
-- Every event on the docket counts (including "JUDGMENT UNDER ADVISEMENT" / "CONTINUED" lines);
-  filter on `event` in `entries.csv` if you only want first appearances.
+| csv | contents |
+|---|---|
+| `by_date.csv` | **cases on each day** (includes 0-case days) plus that day's time slots |
+| `sessions.csv` | cases at each date + time slot |
+| `by_month`, `by_weekday` | dockets, total cases, avg/median/min/max cases per docket day |
+| `by_time`, `by_weekday_time`, `by_month_time` | the same stats, per time slot |
+| `cases.csv` | every case line, for your own pivots |
+| `summary.json` | totals, plus any days whose page couldn't be fetched (`missing_pages`) |
+
+Days with 0 cases (holidays) still appear in `by_date.csv`, but they are left out of the averages.
+
+A page is not saved, and the day shows up in `missing_pages`, if:
+- it's missing OSCN's `<!--End Transmission-->` footer, or
+- it's dated differently than requested.
+
+A CAPTCHA response stops the run.
 
 ## Test
 ```bash
