@@ -16,6 +16,19 @@ When the judge changes partway through, give each judge a date window (`from`/`t
 ```
 Optional settings: `"overwrite": true` re-downloads pages, and `"weekdays_only": false` includes weekends.
 
+### Days that aren't fetched
+OSCN is only hit on days court could be open. For example, 2026 takes **251 requests, not 365**.
+- **Weekends** are skipped.
+- **Oklahoma legal holidays** are skipped (`holidays.py`): New Year's Day, MLK Day, Presidents' Day,
+  Memorial Day, Independence Day, Labor Day, Veterans Day, Thanksgiving, the day after Thanksgiving, and Christmas.
+  A fixed-date holiday on a Saturday is observed the Friday before; on a Sunday, the Monday after.
+- **Christmas Eve is fetched on purpose**, because how it's observed changes with the governor's order each
+  year. The list is kept conservative: a wrongly skipped day loses data, while a wrongly fetched one costs a single request.
+- `"skip_dates": [...]` adds closures (weather, Christmas Eve if you know it).
+  `"include_dates": [...]` forces a fetch on a date that would otherwise be skipped.
+  `"skip_holidays": false` turns holiday skipping off.
+- `summary.json` lists every holiday that was skipped (`skipped_holidays`), so you can check it.
+
 - Pages already saved are skipped, so if a run dies, invoke the same event again.
 - If a range takes longer than 15 minutes, the function re-invokes itself and finishes the report on the last leg.
 - At 1 request/sec, one year (~250 weekdays) takes about 4–5 minutes.

@@ -69,12 +69,25 @@ class Tests(unittest.TestCase):
         self.assertEqual((summary(r)["total_cases"], summary(r)["total_jua"]), (3, 2))
 
     def test_plan_judge_windows(self):
-        ev = {"start_date": "2026-06-29", "end_date": "2026-07-03",
-              "judges": [{"id": "1", "to": "2026-06-30"}, {"id": "2", "from": "2026-07-01"}]}
+        ev = {"start_date": "2026-06-15", "end_date": "2026-06-19",
+              "judges": [{"id": "1", "to": "2026-06-16"}, {"id": "2", "from": "2026-06-17"}]}
         self.assertEqual([(j, d.day) for j, d in handler.plan(ev)],
-                         [("1", 29), ("1", 30), ("2", 1), ("2", 2), ("2", 3)])
-        ev = {"start_date": "2026-07-03", "end_date": "2026-07-06", "judge": "9"}   # Fri..Mon
-        self.assertEqual([d.day for _, d in handler.plan(ev)], [3, 6])
+                         [("1", 15), ("1", 16), ("2", 17), ("2", 18), ("2", 19)])
+        ev = {"start_date": "2026-06-12", "end_date": "2026-06-15", "judge": "9"}   # Fri..Mon
+        self.assertEqual([d.day for _, d in handler.plan(ev)], [12, 15])
+
+    def test_holidays_skipped(self):
+        ev = {"start_date": "2026-11-23", "end_date": "2026-11-30", "judge": "9"}   # Thanksgiving week
+        self.assertEqual([d.day for _, d in handler.plan(ev)], [23, 24, 25, 30])
+        ev["include_dates"], ev["skip_dates"] = ["2026-11-27"], ["2026-11-24"]
+        self.assertEqual([d.day for _, d in handler.plan(ev)], [23, 25, 27, 30])
+        ev = {"start_date": "2021-12-20", "end_date": "2021-12-31", "judge": "9"}   # Sat Xmas, Sat New Year
+        days = [d.day for _, d in handler.plan(ev)]
+        self.assertNotIn(24, days)
+        self.assertNotIn(31, days)
+        self.assertIn(27, days)
+        self.assertEqual(len(handler.plan({"start_date": "2026-01-01", "end_date": "2026-12-31",
+                                           "judge": "9"})), 261 - 10)
 
 
 if __name__ == "__main__":

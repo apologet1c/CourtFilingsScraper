@@ -11,7 +11,10 @@ Event:
   ],
   "report_name": "2023",                # optional; default "<start>_<end>"
   "overwrite": false,                   # optional; re-download pages already saved
-  "weekdays_only": true                 # optional
+  "weekdays_only": true,                # optional; weekends are skipped by default
+  "skip_holidays": true,                # optional; skip Oklahoma court holidays (holidays.py)
+  "skip_dates": ["2023-12-22"],         # optional; extra closures (weather, Christmas Eve, ...)
+  "include_dates": ["2026-11-11"]       # optional; force a fetch on a date that would be skipped
 }
 
 Env: S3_BUCKET, OSCN_KEY, OSCN_KEY_HEADER (header name the key goes in),
@@ -34,6 +37,7 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from holidays import holidays_between
 from docket_parser import parse_docket, is_complete, scheduled_date
 from report import build_reports, summary, to_csv
 
@@ -124,6 +128,25 @@ def fetch(url: str, tries: int = 3) -> str:
 
 # ------------------------------------------------------------------ plan
 
+def skipped_days(event: dict) -> dict[date, str]:
+    """Days in range that won't be fetched (court closed), with the reason."""
+    start, end = date.fromisoformat(event["start_date"]), date.fromisoformat(event["end_date"])
+    skip: dict[date, str] = {}
+    if event.get("weekdays_only", True):
+        d = start
+        while d <= end:
+            if d.weekday() >= 5:
+                skip[d] = "weekend"
+            d += timedelta(days=1)
+    if event.get("skip_holidays", True):
+        skip.update(holidays_between(start, end))
+    for s in event.get("skip_dates", []):
+        skip[date.fromisoformat(s)] = "skip_dates"
+    for s in event.get("include_dates", []):
+        skip.pop(date.fromisoformat(s), None)
+    return skip
+
+
 def plan(event: dict) -> list[tuple[str, date]]:
     """Every (judge_id, day) to fetch, in date order."""
     start, end = date.fromisoformat(event["start_date"]), date.fromisoformat(event["end_date"])
@@ -135,10 +158,10 @@ def plan(event: dict) -> list[tuple[str, date]]:
         windows = [(str(event["judge"]), start, end)]
     else:
         raise ValueError('event needs "judge" or "judges"')
-    weekdays_only = event.get("weekdays_only", True)
+    skip = skipped_days(event)
     out, d = [], start
     while d <= end:
-        if not weekdays_only or d.weekday() < 5:
+        if d not in skip:
             out += [(j, d) for j, a, b in windows if a <= d <= b]
         d += timedelta(days=1)
     if not out:
@@ -190,7 +213,9 @@ def make_report(pairs, event) -> dict:
     base = f"reports/{DB}/{name}"
     for table, rows in reports.items():
         save(f"{base}/{table}.csv", to_csv(rows), "text/csv")
-    result = {**summary(reports), "missing_pages": missing,
+    holidays = {d.isoformat(): why for d, why in sorted(skipped_days(event).items()) if why != "weekend"}
+    result = {**summary(reports), "requests_planned": len(pairs),
+              "skipped_holidays": holidays, "missing_pages": missing,
               "output": f"s3://{BUCKET}/{base}/" if BUCKET else str(LOCAL_DIR / base),
               "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     save(f"{base}/summary.json", json.dumps(result, indent=2), "application/json")
